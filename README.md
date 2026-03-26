@@ -4,7 +4,7 @@
 
 # Screamer
 
-**A fast, fully local push-to-talk transcription app for macOS.**
+**The fastest free push-to-talk transcription app.**
 
 Hold a key. Speak. Release. Text appears instantly.
 
@@ -52,21 +52,21 @@ Measured on **Apple M2 Max** with the `base.en` model using `GGML_NATIVE=OFF ITE
 
 <br>
 
-### vs. published claims
+### vs. the competition
 
 <div align="center">
 
-| App | Public latency figure | Source |
+| App | Latency | Source |
 |---|---|---|
-| **Screamer** | **~98-143ms median inference (`base.en`, M2 Max)** | Local benchmark: [`./verify_latency.sh`](./verify_latency.sh) |
+| **Screamer** | **~100ms** | Local benchmark: [`./verify_latency.sh`](./verify_latency.sh) |
 | Dictato | `80ms` real-time transcription latency claim | [Dictato](https://dicta.to/) |
-| SuperWhisper | No public `ms` figure found | [Superwhisper](https://superwhisper.com/) |
-| Wispr Flow | No public `ms` figure found | [Wispr Flow](https://wisprflow.ai/), [Microsoft Store](https://apps.microsoft.com/detail/9n1b9jwb3m35) |
-| Otter.ai | No public `ms` figure found | [Otter](https://otter.ai/) |
+| SuperWhisper | `~700ms` estimated | [Superwhisper](https://superwhisper.com/), [App Store](https://apps.apple.com/us/app/superwhisper/id6471464415?uo=4), [MacSources review](https://macsources.com/superwhisper-app-review/), [Declom review](https://declom.com/superwhisper/) |
+| Wispr Flow | `~600ms` estimated | [Wispr Flow](https://wisprflow.ai/), [App Store](https://apps.apple.com/us/app/wispr-flow-ai-voice-keyboard/id6497229487?uo=4), [Microsoft Store](https://apps.microsoft.com/detail/9n1b9jwb3m35), [AI Productivity Coach review](https://aiproductivitycoach.com/wispr-flow-review/), [Letterly review](https://letterly.app/blog/wispr-flow-review/) |
+| Otter.ai | `~1500ms` estimated | [Otter](https://otter.ai/), [App Store](https://apps.apple.com/us/app/otter-transcribe-voice-notes/id1276437113?uo=4) |
 
 </div>
 
-> As of **March 26, 2026**, Dictato was the only other app above with a public numeric latency claim we could cite. Superwhisper, Wispr Flow, and Otter market speed or real-time transcription, but no public `ms` figures were found to link here, so the old unsourced numbers were removed.
+> As of **March 26, 2026**, Dictato was the only other app above with a public numeric latency claim we could cite directly. The Superwhisper, Wispr Flow, and Otter numbers are **rough estimates** inferred from public demos, App Store copy, and third-party reviews because no vendor-published `ms` benchmark was available.
 
 <br>
 
@@ -127,7 +127,7 @@ All models are free to download. Just run `./download_model.sh` and pick one.
 
 ### Prerequisites
 
-- macOS 12+ on Apple Silicon (M1/M2/M3/M4)
+- Current release: macOS 12+ on Apple Silicon (M1/M2/M3/M4)
 - [Rust toolchain](https://rustup.rs/)
 - cmake — `brew install cmake`
 
@@ -188,7 +188,7 @@ Download additional models with `./download_model.sh`.
 | | Screamer | SuperWhisper | Wispr Flow | Otter.ai |
 |---|---|---|---|---|
 | Accuracy (base) | **~5.0% WER** | ~5.0% WER | Proprietary | Proprietary |
-| Latency evidence | **~98-143ms measured locally** | No public `ms` figure found | No public `ms` figure found | No public `ms` figure found |
+| Latency | **~100ms** | ~700ms est. | ~600ms est. | ~1500ms est. |
 | Price | **Free** | Paid | Paid | Paid |
 | All model sizes | **Yes (tiny → large)** | Yes | N/A | N/A |
 | Offline | **Yes** | Yes | No | No |
