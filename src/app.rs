@@ -207,6 +207,7 @@ impl App {
             }
         };
 
+        log::info!("Transcriber runtime: {}", transcriber.runtime_summary());
         log::info!("Model loaded successfully");
 
         let recorder = Arc::new(Recorder::new());

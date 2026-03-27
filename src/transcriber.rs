@@ -1,3 +1,4 @@
+use crate::hardware::{ComputeBackendPreference, MachineProfile, RuntimeTuning};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant};
@@ -7,7 +8,6 @@ use whisper_rs::{
 
 const AUDIO_CTX_SAMPLES_PER_UNIT: usize = 320;
 const AUDIO_CTX_GRANULARITY: i32 = 64;
-const MIN_AUDIO_CTX: i32 = 256;
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
@@ -22,16 +22,25 @@ pub struct TranscriberConfig {
     pub n_threads: i32,
     pub no_timestamps: bool,
     pub audio_ctx: AudioContextStrategy,
+    pub adaptive_audio_ctx_min: i32,
     pub reuse_state: bool,
+    pub compute_backend: ComputeBackendPreference,
+    pub flash_attn: bool,
+    pub gpu_device: i32,
 }
 
 impl Default for TranscriberConfig {
     fn default() -> Self {
+        let tuning = MachineProfile::detect().recommended_tuning();
         Self {
-            n_threads: recommended_n_threads(),
+            n_threads: tuning.n_threads,
             no_timestamps: true,
             audio_ctx: AudioContextStrategy::Adaptive,
+            adaptive_audio_ctx_min: tuning.adaptive_audio_ctx_min,
             reuse_state: true,
+            compute_backend: tuning.compute_backend,
+            flash_attn: tuning.flash_attn,
+            gpu_device: tuning.gpu_device,
         }
     }
 }
@@ -71,6 +80,15 @@ pub struct Transcriber {
     final_state: Option<Mutex<WhisperState>>,
     live_state: Option<Mutex<WhisperState>>,
     config: TranscriberConfig,
+    machine_profile: MachineProfile,
+    runtime_tuning: RuntimeTuning,
+    selected_backend: SelectedBackend,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SelectedBackend {
+    Cpu,
+    Gpu,
 }
 
 impl Transcriber {
@@ -79,14 +97,17 @@ impl Transcriber {
     }
 
     pub fn with_config(model_path: &Path, config: TranscriberConfig) -> Result<Self, String> {
-        let mut params = WhisperContextParameters::default();
-        params.flash_attn(true);
+        let machine_profile = MachineProfile::detect();
+        let runtime_tuning = RuntimeTuning {
+            compute_backend: config.compute_backend,
+            flash_attn: config.flash_attn,
+            gpu_device: config.gpu_device,
+            n_threads: config.n_threads,
+            adaptive_audio_ctx_min: config.adaptive_audio_ctx_min,
+        };
 
-        let ctx = WhisperContext::new_with_params(
-            model_path.to_str().ok_or("Invalid model path")?,
-            params,
-        )
-        .map_err(|e| format!("Failed to load whisper model: {}", e))?;
+        let (ctx, selected_backend) =
+            Self::create_context(model_path, &config, &machine_profile)?;
 
         let (final_state, live_state) = if config.reuse_state {
             let final_state = ctx
@@ -108,7 +129,24 @@ impl Transcriber {
             final_state,
             live_state,
             config,
+            machine_profile,
+            runtime_tuning,
+            selected_backend,
         })
+    }
+
+    pub fn runtime_summary(&self) -> String {
+        format!(
+            "{} | backend={} | flash_attn={} | threads={} | min_audio_ctx={}",
+            self.machine_profile.summary(),
+            match self.selected_backend {
+                SelectedBackend::Cpu => "cpu",
+                SelectedBackend::Gpu => "gpu",
+            },
+            yes_no(self.runtime_tuning.flash_attn && self.selected_backend == SelectedBackend::Gpu),
+            self.runtime_tuning.n_threads,
+            self.runtime_tuning.adaptive_audio_ctx_min
+        )
     }
 
     #[allow(dead_code)]
@@ -206,6 +244,48 @@ impl Transcriber {
             .map_err(|e| format!("Failed to create whisper state: {}", e))
     }
 
+    fn create_context(
+        model_path: &Path,
+        config: &TranscriberConfig,
+        machine_profile: &MachineProfile,
+    ) -> Result<(WhisperContext, SelectedBackend), String> {
+        let attempts = match config.compute_backend {
+            ComputeBackendPreference::CpuOnly => vec![(false, SelectedBackend::Cpu)],
+            ComputeBackendPreference::GpuOnly => vec![(true, SelectedBackend::Gpu)],
+            ComputeBackendPreference::PreferGpu => vec![
+                (true, SelectedBackend::Gpu),
+                (false, SelectedBackend::Cpu),
+            ],
+        };
+
+        let model_path = model_path.to_str().ok_or("Invalid model path")?;
+        let mut last_error = None;
+
+        for (use_gpu, backend) in attempts {
+            let mut params = WhisperContextParameters::default();
+            params.use_gpu(use_gpu);
+            params.flash_attn(use_gpu && config.flash_attn);
+            params.gpu_device(config.gpu_device);
+
+            match WhisperContext::new_with_params(model_path, params) {
+                Ok(ctx) => return Ok((ctx, backend)),
+                Err(err) => {
+                    last_error = Some(format!(
+                        "Failed to load whisper model with {} backend on {}: {}",
+                        match backend {
+                            SelectedBackend::Cpu => "cpu",
+                            SelectedBackend::Gpu => "gpu",
+                        },
+                        machine_profile.summary(),
+                        err
+                    ));
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| "Failed to load whisper model".to_string()))
+    }
+
     fn run_with_state(
         &self,
         state: &mut WhisperState,
@@ -257,15 +337,12 @@ impl Transcriber {
 
     fn recommended_audio_ctx(&self, samples: &[f32]) -> i32 {
         let required = ceil_div(samples.len(), AUDIO_CTX_SAMPLES_PER_UNIT) as i32;
-        round_up_to_multiple(required.max(MIN_AUDIO_CTX), AUDIO_CTX_GRANULARITY)
+        round_up_to_multiple(
+            required.max(self.config.adaptive_audio_ctx_min),
+            AUDIO_CTX_GRANULARITY,
+        )
             .min(self.ctx.n_audio_ctx())
     }
-}
-
-fn recommended_n_threads() -> i32 {
-    std::thread::available_parallelism()
-        .map(|n| n.get().min(4) as i32)
-        .unwrap_or(4)
 }
 
 fn ceil_div(value: usize, divisor: usize) -> usize {
@@ -274,4 +351,8 @@ fn ceil_div(value: usize, divisor: usize) -> usize {
 
 fn round_up_to_multiple(value: i32, multiple: i32) -> i32 {
     ((value + multiple - 1) / multiple) * multiple
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }

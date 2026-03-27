@@ -1,3 +1,6 @@
+#[path = "../hardware.rs"]
+mod hardware;
+
 #[allow(dead_code)]
 #[path = "../transcriber.rs"]
 mod transcriber;
@@ -52,9 +55,10 @@ fn main() -> Result<(), String> {
     println!("  reuse state: {}", yes_no(config.reuse_state));
     println!("  generate timestamps: {}", yes_no(!config.no_timestamps));
     println!("  audio ctx: {}", audio_ctx_label(config.audio_ctx));
-    println!();
 
     let transcriber = Transcriber::with_config(&model_path, config)?;
+    println!("  runtime: {}", transcriber.runtime_summary());
+    println!();
 
     let mut results = Vec::new();
     for input in &cli.inputs {

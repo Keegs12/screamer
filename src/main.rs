@@ -1,5 +1,6 @@
 mod app;
 mod config;
+mod hardware;
 mod hotkey;
 mod loading;
 mod overlay;

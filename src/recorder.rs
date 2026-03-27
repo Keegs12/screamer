@@ -191,6 +191,10 @@ impl Recorder {
     }
 }
 
+pub(crate) fn resample_to_target(input: &[f32], from_rate: u32) -> Vec<f32> {
+    resample(input, from_rate, TARGET_SAMPLE_RATE)
+}
+
 /// Linear interpolation resampler
 fn resample(input: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     if from_rate == to_rate || input.is_empty() {
