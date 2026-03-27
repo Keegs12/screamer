@@ -49,7 +49,7 @@ fn waveform_level_for_bar(bar_idx: usize, waveform: &[f32]) -> f64 {
 fn smooth_height(current: f64, target: f64) -> f64 {
     let smoothing = if target > current { 0.62 } else { 0.36 };
     let next = current + (target - current) * smoothing;
-    next.max(BAR_MIN_HEIGHT).min(BAR_MAX_HEIGHT)
+    next.clamp(BAR_MIN_HEIGHT, BAR_MAX_HEIGHT)
 }
 
 impl Overlay {

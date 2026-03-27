@@ -1,10 +1,10 @@
+use crate::audio::{resample_to_target, TARGET_SAMPLE_RATE};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::Stream;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-const TARGET_SAMPLE_RATE: u32 = 16000;
 const WAVEFORM_WINDOW_DIVISOR: usize = 20; // ~50ms of audio at the device sample rate
 const WAVEFORM_WINDOW_FLOOR: usize = 512;
 const WAVEFORM_NOISE_GATE: f32 = 0.003;
@@ -135,7 +135,7 @@ impl Recorder {
         if device_rate == TARGET_SAMPLE_RATE {
             raw_samples
         } else {
-            resample(&raw_samples, device_rate, TARGET_SAMPLE_RATE)
+            resample_to_target(&raw_samples, device_rate)
         }
     }
 
@@ -151,7 +151,7 @@ impl Recorder {
         if device_rate == TARGET_SAMPLE_RATE {
             raw_samples
         } else {
-            resample(&raw_samples, device_rate, TARGET_SAMPLE_RATE)
+            resample_to_target(&raw_samples, device_rate)
         }
     }
 
@@ -191,39 +191,6 @@ impl Recorder {
     }
 }
 
-pub(crate) fn resample_to_target(input: &[f32], from_rate: u32) -> Vec<f32> {
-    resample(input, from_rate, TARGET_SAMPLE_RATE)
-}
-
-/// Linear interpolation resampler
-fn resample(input: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
-    if from_rate == to_rate || input.is_empty() {
-        return input.to_vec();
-    }
-
-    let ratio = from_rate as f64 / to_rate as f64;
-    let output_len = (input.len() as f64 / ratio) as usize;
-    let mut output = Vec::with_capacity(output_len);
-
-    for i in 0..output_len {
-        let src_idx = i as f64 * ratio;
-        let idx = src_idx as usize;
-        let frac = (src_idx - idx as f64) as f32;
-
-        let sample = if idx + 1 < input.len() {
-            input[idx] * (1.0 - frac) + input[idx + 1] * frac
-        } else if idx < input.len() {
-            input[idx]
-        } else {
-            0.0
-        };
-
-        output.push(sample);
-    }
-
-    output
-}
-
 // SAFETY: Stream is Send but not Sync by default. We protect it with a Mutex.
 unsafe impl Send for Recorder {}
 unsafe impl Sync for Recorder {}
@@ -232,63 +199,6 @@ unsafe impl Sync for Recorder {}
 mod tests {
     use super::*;
     use std::iter;
-
-    #[test]
-    fn resample_identity() {
-        let input = vec![1.0, 2.0, 3.0, 4.0];
-        let output = resample(&input, 16000, 16000);
-        assert_eq!(input, output);
-    }
-
-    #[test]
-    fn resample_empty() {
-        let output = resample(&[], 48000, 16000);
-        assert!(output.is_empty());
-    }
-
-    #[test]
-    fn resample_downsample_3x() {
-        // 48kHz -> 16kHz = 3:1 ratio
-        let input: Vec<f32> = (0..48).map(|i| i as f32).collect();
-        let output = resample(&input, 48000, 16000);
-        assert_eq!(output.len(), 16);
-        // First sample should be 0.0
-        assert!((output[0] - 0.0).abs() < 0.01);
-        // Second sample should interpolate around index 3.0
-        assert!((output[1] - 3.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn resample_upsample_2x() {
-        let input = vec![0.0, 1.0, 2.0, 3.0];
-        let output = resample(&input, 16000, 32000);
-        assert_eq!(output.len(), 8);
-        // Should interpolate: 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, ...
-        assert!((output[0] - 0.0).abs() < 0.01);
-        assert!((output[1] - 0.5).abs() < 0.01);
-        assert!((output[2] - 1.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn resample_preserves_approximate_length() {
-        let input: Vec<f32> = vec![0.0; 48000]; // 1 second at 48kHz
-        let output = resample(&input, 48000, 16000);
-        // Should be approximately 16000 samples (1 second at 16kHz)
-        assert!((output.len() as i32 - 16000).abs() <= 1);
-    }
-
-    #[test]
-    fn resample_interpolation_accuracy() {
-        // Linear ramp: output should also be a linear ramp
-        let input: Vec<f32> = (0..100).map(|i| i as f32 / 99.0).collect();
-        let output = resample(&input, 100, 50);
-        for i in 1..output.len() {
-            assert!(
-                output[i] >= output[i - 1],
-                "output should be monotonically increasing"
-            );
-        }
-    }
 
     #[test]
     fn waveform_snapshot_is_flat_for_silence() {

@@ -1,23 +1,27 @@
+#[path = "../audio.rs"]
+mod audio;
+
+#[path = "../bench_support.rs"]
+mod bench_support;
+
 #[path = "../hardware.rs"]
 mod hardware;
 
+#[path = "../model_paths.rs"]
+mod model_paths;
+
 #[path = "../paster.rs"]
 mod paster;
-
-#[path = "../recorder.rs"]
-mod recorder;
 
 #[allow(dead_code)]
 #[path = "../transcriber.rs"]
 mod transcriber;
 
+use bench_support::{read_f32le_file, sample_label, Stats};
 use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 use transcriber::Transcriber;
-
-const TARGET_SAMPLE_RATE: f64 = 16_000.0;
 
 struct Cli {
     model: String,
@@ -60,7 +64,7 @@ fn main() -> Result<(), String> {
     let mut results = Vec::new();
     for input in &cli.inputs {
         let device_audio = read_f32le_file(input)?;
-        let warmup_audio = recorder::resample_to_target(&device_audio, cli.device_rate);
+        let warmup_audio = audio::resample_to_target(&device_audio, cli.device_rate);
 
         for _ in 0..cli.warmup {
             let output = transcriber.transcribe_profiled(&warmup_audio)?;
@@ -83,7 +87,7 @@ fn main() -> Result<(), String> {
             let total_t0 = Instant::now();
 
             let stop_t0 = Instant::now();
-            let samples = recorder::resample_to_target(&device_audio, cli.device_rate);
+            let samples = audio::resample_to_target(&device_audio, cli.device_rate);
             let stop = stop_t0.elapsed().as_secs_f64() * 1000.0;
             output_samples = samples.len();
 
@@ -207,28 +211,9 @@ fn print_usage() {
     eprintln!("  Files must be raw f32 little-endian mono audio at the declared device rate.");
 }
 
-fn read_f32le_file(path: &Path) -> Result<Vec<f32>, String> {
-    let bytes = fs::read(path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-
-    if bytes.len() % 4 != 0 {
-        return Err(format!(
-            "Invalid raw audio file {}: byte length {} is not divisible by 4",
-            path.display(),
-            bytes.len()
-        ));
-    }
-
-    let mut samples = Vec::with_capacity(bytes.len() / 4);
-    for chunk in bytes.chunks_exact(4) {
-        samples.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-    }
-
-    Ok(samples)
-}
-
 fn print_result(result: &SampleResult, device_rate: u32) {
     let source_duration_s = result.source_samples as f64 / device_rate as f64;
-    let output_duration_s = result.output_samples as f64 / TARGET_SAMPLE_RATE;
+    let output_duration_s = result.output_samples as f64 / f64::from(audio::TARGET_SAMPLE_RATE);
     let total = Stats::from_samples(&result.total_ms);
     let stop = Stats::from_samples(&result.stop_ms);
     let transcribe = Stats::from_samples(&result.transcribe_ms);
@@ -236,12 +221,7 @@ fn print_result(result: &SampleResult, device_rate: u32) {
     let infer = Stats::from_samples(&result.infer_ms);
     let extract = Stats::from_samples(&result.extract_ms);
     let paste = Stats::from_samples(&result.paste_ms);
-    let label = result
-        .path
-        .file_stem()
-        .or_else(|| result.path.file_name())
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| result.path.display().to_string());
+    let label = sample_label(&result.path);
 
     println!("{}", label);
     println!(
@@ -274,41 +254,4 @@ fn yes_no(value: bool) -> &'static str {
     } else {
         "no"
     }
-}
-
-struct Stats {
-    min: f64,
-    p50: f64,
-    p95: f64,
-    mean: f64,
-}
-
-impl Stats {
-    fn from_samples(values: &[f64]) -> Self {
-        let mut sorted = values.to_vec();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        let min = *sorted.first().unwrap_or(&0.0);
-        let mean = if sorted.is_empty() {
-            0.0
-        } else {
-            sorted.iter().sum::<f64>() / sorted.len() as f64
-        };
-
-        Self {
-            min,
-            p50: percentile(&sorted, 0.50),
-            p95: percentile(&sorted, 0.95),
-            mean,
-        }
-    }
-}
-
-fn percentile(sorted: &[f64], p: f64) -> f64 {
-    if sorted.is_empty() {
-        return 0.0;
-    }
-
-    let idx = ((sorted.len() - 1) as f64 * p).round() as usize;
-    sorted[idx]
 }

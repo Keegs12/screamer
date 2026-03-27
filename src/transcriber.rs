@@ -1,4 +1,5 @@
 use crate::hardware::{ComputeBackendPreference, MachineProfile, RuntimeTuning};
+use crate::model_paths;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant};
@@ -180,34 +181,7 @@ impl Transcriber {
 
     /// Find the model file, checking bundle Resources first, then local models/ dir
     pub fn find_model(model_name: &str) -> Option<PathBuf> {
-        let candidates = [
-            format!("ggml-{}.en.bin", model_name),
-            format!("ggml-{}.bin", model_name),
-            format!("ggml-{}-v3.bin", model_name),
-        ];
-
-        // Cache exe parent path once
-        let bundle_models_dir = std::env::current_exe().ok().and_then(|exe| {
-            exe.parent()
-                .and_then(|p| p.parent())
-                .map(|p| p.join("Resources").join("models"))
-        });
-
-        for filename in &candidates {
-            if let Some(ref dir) = bundle_models_dir {
-                let path = dir.join(filename);
-                if path.exists() {
-                    return Some(path);
-                }
-            }
-
-            let local = PathBuf::from("models").join(filename);
-            if local.exists() {
-                return Some(local);
-            }
-        }
-
-        None
+        model_paths::find_model(model_name)
     }
 
     fn acquire_final_state(&self) -> Result<StateAccess<'_>, String> {

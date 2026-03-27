@@ -1,8 +1,10 @@
 mod app;
+mod audio;
 mod config;
 mod hardware;
 mod hotkey;
 mod loading;
+mod model_paths;
 mod overlay;
 mod paster;
 mod recorder;

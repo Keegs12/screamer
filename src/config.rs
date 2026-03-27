@@ -2,18 +2,13 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OverlayPosition {
+    #[default]
     Center,
     Top,
     Bottom,
-}
-
-impl Default for OverlayPosition {
-    fn default() -> Self {
-        Self::Center
-    }
 }
 
 pub struct PositionInfo {

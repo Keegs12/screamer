@@ -1,13 +1,19 @@
+#[path = "../bench_support.rs"]
+mod bench_support;
+
 #[path = "../hardware.rs"]
 mod hardware;
+
+#[path = "../model_paths.rs"]
+mod model_paths;
 
 #[allow(dead_code)]
 #[path = "../transcriber.rs"]
 mod transcriber;
 
+use bench_support::{read_f32le_file, sample_label, Stats};
 use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 use transcriber::{AudioContextStrategy, Transcriber, TranscriberConfig};
 
@@ -153,36 +159,12 @@ fn print_usage() {
     eprintln!("  Files must be raw f32 little-endian mono audio at 16kHz.");
 }
 
-fn read_f32le_file(path: &Path) -> Result<Vec<f32>, String> {
-    let bytes = fs::read(path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-
-    if bytes.len() % 4 != 0 {
-        return Err(format!(
-            "Invalid raw audio file {}: byte length {} is not divisible by 4",
-            path.display(),
-            bytes.len()
-        ));
-    }
-
-    let mut samples = Vec::with_capacity(bytes.len() / 4);
-    for chunk in bytes.chunks_exact(4) {
-        samples.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-    }
-
-    Ok(samples)
-}
-
 fn print_result(result: &SampleResult) {
     let duration_s = result.samples as f64 / SAMPLE_RATE;
     let outer = Stats::from_samples(&result.outer_ms);
     let internal = Stats::from_samples(&result.internal_ms);
     let drift = Stats::from_samples(&result.drift_ms);
-    let label = result
-        .path
-        .file_stem()
-        .or_else(|| result.path.file_name())
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| result.path.display().to_string());
+    let label = sample_label(&result.path);
 
     println!("{}", label);
     println!(
@@ -203,41 +185,4 @@ fn print_result(result: &SampleResult) {
         drift.min, drift.p50, drift.p95, drift.mean
     );
     println!();
-}
-
-struct Stats {
-    min: f64,
-    p50: f64,
-    p95: f64,
-    mean: f64,
-}
-
-impl Stats {
-    fn from_samples(values: &[f64]) -> Self {
-        let mut sorted = values.to_vec();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        let min = *sorted.first().unwrap_or(&0.0);
-        let mean = if sorted.is_empty() {
-            0.0
-        } else {
-            sorted.iter().sum::<f64>() / sorted.len() as f64
-        };
-
-        Self {
-            min,
-            p50: percentile(&sorted, 0.50),
-            p95: percentile(&sorted, 0.95),
-            mean,
-        }
-    }
-}
-
-fn percentile(sorted: &[f64], p: f64) -> f64 {
-    if sorted.is_empty() {
-        return 0.0;
-    }
-
-    let idx = ((sorted.len() - 1) as f64 * p).round() as usize;
-    sorted[idx]
 }

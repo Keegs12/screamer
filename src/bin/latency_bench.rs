@@ -1,13 +1,19 @@
+#[path = "../bench_support.rs"]
+mod bench_support;
+
 #[path = "../hardware.rs"]
 mod hardware;
+
+#[path = "../model_paths.rs"]
+mod model_paths;
 
 #[allow(dead_code)]
 #[path = "../transcriber.rs"]
 mod transcriber;
 
+use bench_support::{read_f32le_file, sample_label, Stats};
 use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use transcriber::{AudioContextStrategy, Transcriber, TranscriberConfig};
 
 const SAMPLE_RATE: f64 = 16_000.0;
@@ -39,10 +45,12 @@ fn main() -> Result<(), String> {
     let model_path = Transcriber::find_model(&cli.model)
         .ok_or_else(|| format!("Could not find model '{}'", cli.model))?;
 
-    let mut config = TranscriberConfig::default();
-    config.reuse_state = cli.reuse_state;
-    config.no_timestamps = cli.no_timestamps;
-    config.audio_ctx = cli.audio_ctx;
+    let mut config = TranscriberConfig {
+        reuse_state: cli.reuse_state,
+        no_timestamps: cli.no_timestamps,
+        audio_ctx: cli.audio_ctx,
+        ..TranscriberConfig::default()
+    };
     if let Some(threads) = cli.threads {
         config.n_threads = threads;
     }
@@ -209,25 +217,6 @@ fn print_usage() {
     eprintln!("  Files must be raw f32 little-endian mono audio at 16kHz.");
 }
 
-fn read_f32le_file(path: &Path) -> Result<Vec<f32>, String> {
-    let bytes = fs::read(path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-
-    if bytes.len() % 4 != 0 {
-        return Err(format!(
-            "Invalid raw audio file {}: byte length {} is not divisible by 4",
-            path.display(),
-            bytes.len()
-        ));
-    }
-
-    let mut samples = Vec::with_capacity(bytes.len() / 4);
-    for chunk in bytes.chunks_exact(4) {
-        samples.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-    }
-
-    Ok(samples)
-}
-
 fn print_result(result: &SampleResult) {
     let duration_s = result.samples as f64 / SAMPLE_RATE;
     let stats = Stats::from_samples(&result.run_total_ms);
@@ -235,12 +224,7 @@ fn print_result(result: &SampleResult) {
     let state_stats = Stats::from_samples(&result.run_state_ms);
     let inference_stats = Stats::from_samples(&result.run_inference_ms);
     let extract_stats = Stats::from_samples(&result.run_extract_ms);
-    let label = result
-        .path
-        .file_stem()
-        .or_else(|| result.path.file_name())
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| result.path.display().to_string());
+    let label = sample_label(&result.path);
 
     println!("{}", label);
     println!(
@@ -252,19 +236,33 @@ fn print_result(result: &SampleResult) {
     if !result.warmup_total_ms.is_empty() {
         println!(
             "  warmup total: min {:.1} ms | p50 {:.1} ms | max {:.1} ms",
-            warmup_stats.min, warmup_stats.p50, warmup_stats.max
+            warmup_stats.min,
+            warmup_stats.p50,
+            max_sample(&result.warmup_total_ms)
         );
     }
 
     println!(
         "  measured total: min {:.1} ms | p50 {:.1} ms | p95 {:.1} ms | max {:.1} ms | mean {:.1} ms",
-        stats.min, stats.p50, stats.p95, stats.max, stats.mean
+        stats.min,
+        stats.p50,
+        stats.p95,
+        max_sample(&result.run_total_ms),
+        stats.mean
     );
     println!(
         "  stage mean: state {:.1} ms | infer {:.1} ms | extract {:.1} ms",
         state_stats.mean, inference_stats.mean, extract_stats.mean
     );
     println!();
+}
+
+fn audio_ctx_label(audio_ctx: AudioContextStrategy) -> String {
+    match audio_ctx {
+        AudioContextStrategy::Adaptive => "adaptive".to_string(),
+        AudioContextStrategy::Fixed(value) => value.to_string(),
+        AudioContextStrategy::ModelDefault => "default".to_string(),
+    }
 }
 
 fn duration_ms(duration: std::time::Duration) -> f64 {
@@ -279,50 +277,6 @@ fn yes_no(value: bool) -> &'static str {
     }
 }
 
-fn audio_ctx_label(audio_ctx: AudioContextStrategy) -> String {
-    match audio_ctx {
-        AudioContextStrategy::Adaptive => "adaptive".to_string(),
-        AudioContextStrategy::Fixed(value) => value.to_string(),
-        AudioContextStrategy::ModelDefault => "default".to_string(),
-    }
-}
-
-struct Stats {
-    min: f64,
-    p50: f64,
-    p95: f64,
-    max: f64,
-    mean: f64,
-}
-
-impl Stats {
-    fn from_samples(values: &[f64]) -> Self {
-        let mut sorted = values.to_vec();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        let min = *sorted.first().unwrap_or(&0.0);
-        let max = *sorted.last().unwrap_or(&0.0);
-        let mean = if sorted.is_empty() {
-            0.0
-        } else {
-            sorted.iter().sum::<f64>() / sorted.len() as f64
-        };
-
-        Self {
-            min,
-            p50: percentile(&sorted, 0.50),
-            p95: percentile(&sorted, 0.95),
-            max,
-            mean,
-        }
-    }
-}
-
-fn percentile(sorted: &[f64], p: f64) -> f64 {
-    if sorted.is_empty() {
-        return 0.0;
-    }
-
-    let idx = ((sorted.len() - 1) as f64 * p).round() as usize;
-    sorted[idx]
+fn max_sample(values: &[f64]) -> f64 {
+    values.iter().copied().reduce(f64::max).unwrap_or(0.0)
 }

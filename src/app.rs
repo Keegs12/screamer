@@ -161,9 +161,7 @@ extern "C" fn toggle_live_transcription_action(
 ) {
     let enabled = LIVE_TRANSCRIPTION_ENABLED.with(|cell| {
         let borrowed = cell.borrow();
-        let Some(flag) = borrowed.as_ref() else {
-            return None;
-        };
+        let flag = borrowed.as_ref()?;
 
         let enabled = !flag.load(Ordering::Relaxed);
         flag.store(enabled, Ordering::Relaxed);

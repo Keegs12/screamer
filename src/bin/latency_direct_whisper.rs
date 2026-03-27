@@ -1,9 +1,15 @@
+#[path = "../bench_support.rs"]
+mod bench_support;
+
 #[path = "../hardware.rs"]
 mod hardware;
 
+#[path = "../model_paths.rs"]
+mod model_paths;
+
+use bench_support::{read_f32le_file, sample_label, Stats};
 use hardware::{ComputeBackendPreference, MachineProfile, RuntimeTuning};
 use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use whisper_rs::{
@@ -30,8 +36,8 @@ struct SampleResult {
 
 fn main() -> Result<(), String> {
     let cli = parse_args(env::args().skip(1))?;
-    let model_path =
-        find_model(&cli.model).ok_or_else(|| format!("Could not find model '{}'", cli.model))?;
+    let model_path = model_paths::find_model(&cli.model)
+        .ok_or_else(|| format!("Could not find model '{}'", cli.model))?;
     let machine = MachineProfile::detect();
     let tuning = machine.recommended_tuning();
     let (ctx, backend_name) = create_context(&model_path, &machine, &tuning)?;
@@ -238,64 +244,10 @@ fn round_up_to_multiple(value: i32, multiple: i32) -> i32 {
     ((value + multiple - 1) / multiple) * multiple
 }
 
-fn find_model(model_name: &str) -> Option<PathBuf> {
-    let candidates = [
-        format!("ggml-{}.en.bin", model_name),
-        format!("ggml-{}.bin", model_name),
-        format!("ggml-{}-v3.bin", model_name),
-    ];
-
-    let bundle_models_dir = std::env::current_exe().ok().and_then(|exe| {
-        exe.parent()
-            .and_then(|p| p.parent())
-            .map(|p| p.join("Resources").join("models"))
-    });
-
-    for filename in &candidates {
-        if let Some(ref dir) = bundle_models_dir {
-            let path = dir.join(filename);
-            if path.exists() {
-                return Some(path);
-            }
-        }
-
-        let local = PathBuf::from("models").join(filename);
-        if local.exists() {
-            return Some(local);
-        }
-    }
-
-    None
-}
-
-fn read_f32le_file(path: &Path) -> Result<Vec<f32>, String> {
-    let bytes = fs::read(path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-
-    if bytes.len() % 4 != 0 {
-        return Err(format!(
-            "Invalid raw audio file {}: byte length {} is not divisible by 4",
-            path.display(),
-            bytes.len()
-        ));
-    }
-
-    let mut samples = Vec::with_capacity(bytes.len() / 4);
-    for chunk in bytes.chunks_exact(4) {
-        samples.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-    }
-
-    Ok(samples)
-}
-
 fn print_result(result: &SampleResult) {
     let duration_s = result.samples as f64 / SAMPLE_RATE;
     let stats = Stats::from_samples(&result.total_ms);
-    let label = result
-        .path
-        .file_stem()
-        .or_else(|| result.path.file_name())
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| result.path.display().to_string());
+    let label = sample_label(&result.path);
 
     println!("{}", label);
     println!(
@@ -316,41 +268,4 @@ fn yes_no(value: bool) -> &'static str {
     } else {
         "no"
     }
-}
-
-struct Stats {
-    min: f64,
-    p50: f64,
-    p95: f64,
-    mean: f64,
-}
-
-impl Stats {
-    fn from_samples(values: &[f64]) -> Self {
-        let mut sorted = values.to_vec();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        let min = *sorted.first().unwrap_or(&0.0);
-        let mean = if sorted.is_empty() {
-            0.0
-        } else {
-            sorted.iter().sum::<f64>() / sorted.len() as f64
-        };
-
-        Self {
-            min,
-            p50: percentile(&sorted, 0.50),
-            p95: percentile(&sorted, 0.95),
-            mean,
-        }
-    }
-}
-
-fn percentile(sorted: &[f64], p: f64) -> f64 {
-    if sorted.is_empty() {
-        return 0.0;
-    }
-
-    let idx = ((sorted.len() - 1) as f64 * p).round() as usize;
-    sorted[idx]
 }
