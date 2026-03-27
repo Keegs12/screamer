@@ -1,5 +1,5 @@
 use crate::config::{Config, HOTKEYS, MODELS, POSITIONS};
-use crate::overlay::Overlay;
+use crate::overlay::{Overlay, WAVEFORM_BINS};
 use crate::recorder::Recorder;
 use crate::transcriber::Transcriber;
 use objc2::msg_send;
@@ -27,6 +27,11 @@ pub struct App {
     recorder: Arc<Recorder>,
     transcriber: Arc<Transcriber>,
     is_recording: Arc<AtomicBool>,
+}
+
+pub struct AppInitError {
+    pub title: &'static str,
+    pub message: String,
 }
 
 // ─── ObjC Menu Handler ───────────────────────────────────────────────────────
@@ -165,23 +170,21 @@ fn relaunch() {
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 impl App {
-    pub fn new(mtm: MainThreadMarker) -> Option<Self> {
+    pub fn new(mtm: MainThreadMarker) -> Result<Self, AppInitError> {
         let config = Config::load();
 
         let model_path = match Transcriber::find_model(&config.model) {
             Some(p) => p,
             None => {
-                Self::show_alert(
-                    mtm,
-                    "Model Not Found",
-                    &format!(
+                return Err(AppInitError {
+                    title: "Model Not Found",
+                    message: format!(
                         "Could not find the whisper model 'ggml-{}.en.bin'.\n\n\
                          Please run: ./download_model.sh {}\n\n\
                          This will download the model to the models/ directory.",
                         config.model, config.model
                     ),
-                );
-                return None;
+                });
             }
         };
 
@@ -190,8 +193,10 @@ impl App {
         let transcriber = match Transcriber::new(&model_path) {
             Ok(t) => Arc::new(t),
             Err(e) => {
-                Self::show_alert(mtm, "Transcription Error", &e);
-                return None;
+                return Err(AppInitError {
+                    title: "Transcription Error",
+                    message: e,
+                });
             }
         };
 
@@ -206,15 +211,15 @@ impl App {
         });
 
         let status_bar = NSStatusBar::systemStatusBar();
-        let status_item =
-            status_bar.statusItemWithLength(objc2_app_kit::NSSquareStatusItemLength);
+        let status_item = status_bar.statusItemWithLength(objc2_app_kit::NSSquareStatusItemLength);
 
         if let Some(button) = status_item.button(mtm) {
             let icon_name = NSString::from_str("menubarTemplate");
             if let Some(image) = objc2_app_kit::NSImage::imageNamed(&icon_name) {
                 unsafe {
                     let _: () = msg_send![&image, setTemplate: true];
-                    let _: () = msg_send![&image, setSize: objc2_core_foundation::CGSize::new(18.0, 18.0)];
+                    let _: () =
+                        msg_send![&image, setSize: objc2_core_foundation::CGSize::new(18.0, 18.0)];
                 }
                 button.setImage(Some(&image));
             } else {
@@ -225,7 +230,7 @@ impl App {
         let menu = Self::build_menu(mtm, &config);
         status_item.setMenu(Some(&menu));
 
-        Some(Self {
+        Ok(Self {
             _status_item: status_item,
             overlay,
             recorder,
@@ -259,7 +264,10 @@ impl App {
                 let title = if available {
                     format!("{} ({})", model_info.label, model_info.size)
                 } else {
-                    format!("{} ({}) — Not Downloaded", model_info.label, model_info.size)
+                    format!(
+                        "{} ({}) — Not Downloaded",
+                        model_info.label, model_info.size
+                    )
                 };
                 item.setTitle(&NSString::from_str(&title));
                 item.setTag(i as isize);
@@ -278,8 +286,10 @@ impl App {
 
             // ── Hotkey submenu ──
             let hotkey_item = NSMenuItem::new(mtm);
-            hotkey_item
-                .setTitle(&NSString::from_str(&format!("Hotkey: {}", config.hotkey_label())));
+            hotkey_item.setTitle(&NSString::from_str(&format!(
+                "Hotkey: {}",
+                config.hotkey_label()
+            )));
             let hotkey_submenu = NSMenu::new(mtm);
             hotkey_submenu.setTitle(&NSString::from_str("Hotkey"));
 
@@ -382,10 +392,7 @@ impl App {
                         match t.transcribe(&samples) {
                             Ok(text) if !text.is_empty() => {
                                 let inference_ms = t0.elapsed().as_millis();
-                                eprintln!(
-                                    "[screamer] Transcribed in {}ms: {}",
-                                    inference_ms, text
-                                );
+                                eprintln!("[screamer] Transcribed in {}ms: {}", inference_ms, text);
                                 crate::paster::paste(&text);
                                 eprintln!(
                                     "[screamer] Total latency: {}ms",
@@ -423,7 +430,8 @@ impl App {
                         if !ov.is_visible() {
                             ov.show();
                         }
-                        ov.update_amplitude(recorder.latest_amplitude());
+                        let waveform = recorder.latest_waveform(WAVEFORM_BINS);
+                        ov.update_waveform(&waveform);
                     } else if ov.is_visible() {
                         ov.hide();
                     }
@@ -432,14 +440,14 @@ impl App {
 
             let _timer: Retained<NSTimer> = msg_send![
                 <NSTimer as ClassType>::class(),
-                scheduledTimerWithTimeInterval: 0.05f64,
+                scheduledTimerWithTimeInterval: (1.0f64 / 30.0f64),
                 repeats: true,
                 block: &*block
             ];
         }
     }
 
-    fn show_alert(mtm: MainThreadMarker, title: &str, message: &str) {
+    pub fn show_alert(mtm: MainThreadMarker, title: &str, message: &str) {
         let alert = NSAlert::new(mtm);
         alert.setAlertStyle(NSAlertStyle::Critical);
         alert.setMessageText(&NSString::from_str(title));

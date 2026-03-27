@@ -7,12 +7,14 @@
   <string>Screamer</string>
   <key>CFBundleIdentifier</key>
   <string>com.screamer.app</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0.1</string>
   <key>CFBundleVersion</key>
-  <string>1.0.0</string>
+  <string>1.0.1</string>
   <key>CFBundleExecutable</key>
   <string>Screamer</string>
   <key>CFBundleIconFile</key>
-  <string>icon</string>
+  <string>icon.icns</string>
   <key>LSUIElement</key>
   <true/>
   <key>NSMicrophoneUsageDescription</key>

@@ -9,6 +9,7 @@ cpal = "0.15"
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", features = [
+    "NSDate",
     "NSString",
     "NSTimer",
     "NSThread",
@@ -52,6 +53,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSControl",
     "NSButton",
     "NSImageView",
+    "NSProgressIndicator",
     "NSWindowScripting",
 ] }
 objc2-quartz-core = { version = "0.3", features = ["CALayer"] }

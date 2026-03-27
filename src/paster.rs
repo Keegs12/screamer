@@ -21,15 +21,13 @@ pub fn paste(text: &str) {
     thread::sleep(Duration::from_millis(5));
 
     // Simulate Cmd+V
-    let source =
-        CGEventSource::new(CGEventSourceStateID::HIDSystemState).expect("CGEventSource");
+    let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState).expect("CGEventSource");
 
     let key_down =
         CGEvent::new_keyboard_event(source.clone(), VK_ANSI_V, true).expect("key down event");
     key_down.set_flags(CGEventFlags::CGEventFlagCommand);
 
-    let key_up =
-        CGEvent::new_keyboard_event(source, VK_ANSI_V, false).expect("key up event");
+    let key_up = CGEvent::new_keyboard_event(source, VK_ANSI_V, false).expect("key up event");
     key_up.set_flags(CGEventFlags::CGEventFlagCommand);
 
     key_down.post(core_graphics::event::CGEventTapLocation::HID);

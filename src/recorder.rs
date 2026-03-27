@@ -1,17 +1,20 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::Stream;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-const NUM_BARS: usize = 56;
 const TARGET_SAMPLE_RATE: u32 = 16000;
+const WAVEFORM_WINDOW_DIVISOR: usize = 20; // ~50ms of audio at the device sample rate
+const WAVEFORM_WINDOW_FLOOR: usize = 512;
+const WAVEFORM_NOISE_GATE: f32 = 0.003;
+const WAVEFORM_BOOST: f32 = 7.5;
 
 pub struct Recorder {
     samples: Arc<Mutex<Vec<f32>>>,
-    amplitudes: Arc<[AtomicU32; NUM_BARS]>,
-    amp_index: Arc<AtomicUsize>,
+    waveform_samples: Arc<Mutex<VecDeque<f32>>>,
+    waveform_window_samples: Arc<AtomicUsize>,
     stream: Mutex<Option<Stream>>,
-    chunk_buffer: Arc<Mutex<Vec<f32>>>,
     device_sample_rate: AtomicU32,
 }
 
@@ -19,10 +22,9 @@ impl Recorder {
     pub fn new() -> Self {
         Self {
             samples: Arc::new(Mutex::new(Vec::with_capacity(16000 * 10))), // pre-alloc ~10s
-            amplitudes: Arc::new(std::array::from_fn(|_| AtomicU32::new(0))),
-            amp_index: Arc::new(AtomicUsize::new(0)),
+            waveform_samples: Arc::new(Mutex::new(VecDeque::with_capacity(4096))),
+            waveform_window_samples: Arc::new(AtomicUsize::new(WAVEFORM_WINDOW_FLOOR)),
             stream: Mutex::new(None),
-            chunk_buffer: Arc::new(Mutex::new(Vec::with_capacity(4800))),
             device_sample_rate: AtomicU32::new(TARGET_SAMPLE_RATE),
         }
     }
@@ -32,13 +34,9 @@ impl Recorder {
         if let Ok(mut s) = self.samples.lock() {
             s.clear();
         }
-        if let Ok(mut cb) = self.chunk_buffer.lock() {
-            cb.clear();
+        if let Ok(mut waveform) = self.waveform_samples.lock() {
+            waveform.clear();
         }
-        for amp in self.amplitudes.iter() {
-            amp.store(0, Ordering::Relaxed);
-        }
-        self.amp_index.store(0, Ordering::Relaxed);
 
         let host = cpal::default_host();
         let device = host
@@ -58,7 +56,12 @@ impl Recorder {
         let sample_rate = default_config.sample_rate().0;
         let channels = default_config.channels();
 
-        self.device_sample_rate.store(sample_rate, Ordering::Relaxed);
+        self.device_sample_rate
+            .store(sample_rate, Ordering::Relaxed);
+        self.waveform_window_samples.store(
+            ((sample_rate as usize) / WAVEFORM_WINDOW_DIVISOR).max(WAVEFORM_WINDOW_FLOOR),
+            Ordering::Relaxed,
+        );
 
         let config = cpal::StreamConfig {
             channels,
@@ -66,49 +69,33 @@ impl Recorder {
             buffer_size: cpal::BufferSize::Default,
         };
 
-        let chunk_size = (sample_rate as usize) / 10; // 100ms chunks
         let samples = self.samples.clone();
-        let amplitudes = self.amplitudes.clone();
-        let amp_index = self.amp_index.clone();
-        let chunk_buffer = self.chunk_buffer.clone();
+        let waveform_samples = self.waveform_samples.clone();
+        let waveform_window_samples = self.waveform_window_samples.clone();
         let ch = channels as usize;
 
         let stream = device
             .build_input_stream(
                 &config,
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    // Append mono samples directly — no intermediate Vec allocation
-                    if let Ok(mut s) = samples.lock() {
+                    if let (Ok(mut recorded), Ok(mut waveform)) =
+                        (samples.lock(), waveform_samples.lock())
+                    {
+                        let window_limit = waveform_window_samples.load(Ordering::Relaxed);
+
                         if ch > 1 {
-                            s.extend(data.chunks(ch).map(|frame| frame[0]));
+                            for frame in data.chunks(ch) {
+                                let sample = frame[0];
+                                recorded.push(sample);
+                                waveform.push_back(sample);
+                            }
                         } else {
-                            s.extend_from_slice(data);
-                        }
-                    }
-
-                    // Accumulate for RMS calculation
-                    if let Ok(mut cb) = chunk_buffer.lock() {
-                        if ch > 1 {
-                            cb.extend(data.chunks(ch).map(|frame| frame[0]));
-                        } else {
-                            cb.extend_from_slice(data);
+                            recorded.extend_from_slice(data);
+                            waveform.extend(data.iter().copied());
                         }
 
-                        while cb.len() >= chunk_size {
-                            // Compute RMS in-place — no collect()
-                            let rms = (cb[..chunk_size]
-                                .iter()
-                                .map(|s| s * s)
-                                .sum::<f32>()
-                                / chunk_size as f32)
-                                .sqrt();
-                            // Store raw RMS (no boost) — let the overlay handle display scaling
-                            let encoded = (rms.min(1.0) * 10000.0) as u32;
-
-                            let idx = amp_index.fetch_add(1, Ordering::Relaxed) % NUM_BARS;
-                            amplitudes[idx].store(encoded, Ordering::Relaxed);
-
-                            cb.drain(..chunk_size);
+                        while waveform.len() > window_limit {
+                            waveform.pop_front();
                         }
                     }
                 },
@@ -152,13 +139,39 @@ impl Recorder {
         }
     }
 
-    /// Returns the most recent raw RMS amplitude value (0.0–1.0).
-    pub fn latest_amplitude(&self) -> f32 {
-        let idx = self.amp_index.load(Ordering::Relaxed);
-        if idx == 0 {
-            return 0.0;
+    pub fn latest_waveform(&self, bins: usize) -> Vec<f32> {
+        if bins == 0 {
+            return Vec::new();
         }
-        self.amplitudes[(idx - 1) % NUM_BARS].load(Ordering::Relaxed) as f32 / 10000.0
+
+        let snapshot: Vec<f32> = if let Ok(waveform) = self.waveform_samples.lock() {
+            waveform.iter().copied().collect()
+        } else {
+            return vec![0.0; bins];
+        };
+
+        if snapshot.is_empty() {
+            return vec![0.0; bins];
+        }
+
+        let mut bins_out = vec![0.0; bins];
+        let sample_count = snapshot.len();
+
+        for (bin_idx, level) in bins_out.iter_mut().enumerate() {
+            let start = bin_idx * sample_count / bins;
+            let end = ((bin_idx + 1) * sample_count / bins)
+                .max(start + 1)
+                .min(sample_count);
+            let slice = &snapshot[start..end];
+            let rms = (slice.iter().map(|sample| sample * sample).sum::<f32>()
+                / slice.len() as f32)
+                .sqrt();
+
+            let gated = ((rms - WAVEFORM_NOISE_GATE) / (1.0 - WAVEFORM_NOISE_GATE)).max(0.0);
+            *level = (gated * WAVEFORM_BOOST).min(1.0).powf(0.85);
+        }
+
+        bins_out
     }
 }
 
@@ -198,6 +211,7 @@ unsafe impl Sync for Recorder {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::iter;
 
     #[test]
     fn resample_identity() {
@@ -249,7 +263,34 @@ mod tests {
         let input: Vec<f32> = (0..100).map(|i| i as f32 / 99.0).collect();
         let output = resample(&input, 100, 50);
         for i in 1..output.len() {
-            assert!(output[i] >= output[i - 1], "output should be monotonically increasing");
+            assert!(
+                output[i] >= output[i - 1],
+                "output should be monotonically increasing"
+            );
         }
+    }
+
+    #[test]
+    fn waveform_snapshot_is_flat_for_silence() {
+        let recorder = Recorder::new();
+        if let Ok(mut waveform) = recorder.waveform_samples.lock() {
+            waveform.extend(iter::repeat_n(0.0, 800));
+        }
+
+        let bins = recorder.latest_waveform(12);
+        assert!(bins.iter().all(|value| *value == 0.0));
+    }
+
+    #[test]
+    fn waveform_snapshot_tracks_recent_activity() {
+        let recorder = Recorder::new();
+        if let Ok(mut waveform) = recorder.waveform_samples.lock() {
+            waveform.extend(iter::repeat_n(0.0, 320));
+            waveform.extend(iter::repeat_n(0.18, 320));
+        }
+
+        let bins = recorder.latest_waveform(8);
+        assert!(bins[..4].iter().all(|value| *value < 0.05));
+        assert!(bins[4..].iter().any(|value| *value > 0.25));
     }
 }

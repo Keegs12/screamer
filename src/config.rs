@@ -22,9 +22,18 @@ pub struct PositionInfo {
 }
 
 pub const POSITIONS: &[PositionInfo] = &[
-    PositionInfo { id: OverlayPosition::Center, label: "Center" },
-    PositionInfo { id: OverlayPosition::Top,    label: "Top" },
-    PositionInfo { id: OverlayPosition::Bottom, label: "Bottom" },
+    PositionInfo {
+        id: OverlayPosition::Center,
+        label: "Center",
+    },
+    PositionInfo {
+        id: OverlayPosition::Top,
+        label: "Top",
+    },
+    PositionInfo {
+        id: OverlayPosition::Bottom,
+        label: "Bottom",
+    },
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,9 +61,21 @@ pub struct ModelInfo {
 }
 
 pub const MODELS: &[ModelInfo] = &[
-    ModelInfo { id: "tiny",  label: "Tiny",   size: "75 MB"  },
-    ModelInfo { id: "base",  label: "Base",   size: "142 MB" },
-    ModelInfo { id: "small", label: "Small",  size: "466 MB" },
+    ModelInfo {
+        id: "tiny",
+        label: "Tiny",
+        size: "75 MB",
+    },
+    ModelInfo {
+        id: "base",
+        label: "Base",
+        size: "142 MB",
+    },
+    ModelInfo {
+        id: "small",
+        label: "Small",
+        size: "466 MB",
+    },
 ];
 
 pub struct HotkeyInfo {
@@ -65,13 +86,48 @@ pub struct HotkeyInfo {
 }
 
 pub const HOTKEYS: &[HotkeyInfo] = &[
-    HotkeyInfo { id: "left_control",  label: "Left Control ⌃",    modifier_flag: 0x00040000, device_flag: 0x00000001 },
-    HotkeyInfo { id: "right_control", label: "Right Control ⌃",   modifier_flag: 0x00040000, device_flag: 0x00002000 },
-    HotkeyInfo { id: "left_option",   label: "Left Option ⌥",     modifier_flag: 0x00080000, device_flag: 0x00000020 },
-    HotkeyInfo { id: "right_option",  label: "Right Option ⌥",    modifier_flag: 0x00080000, device_flag: 0x00000040 },
-    HotkeyInfo { id: "left_command",  label: "Left Command ⌘",    modifier_flag: 0x00100000, device_flag: 0x00000008 },
-    HotkeyInfo { id: "right_command", label: "Right Command ⌘",   modifier_flag: 0x00100000, device_flag: 0x00000010 },
-    HotkeyInfo { id: "fn",            label: "Fn (Globe) 🌐",     modifier_flag: 0x00800000, device_flag: 0 },
+    HotkeyInfo {
+        id: "left_control",
+        label: "Left Control ⌃",
+        modifier_flag: 0x00040000,
+        device_flag: 0x00000001,
+    },
+    HotkeyInfo {
+        id: "right_control",
+        label: "Right Control ⌃",
+        modifier_flag: 0x00040000,
+        device_flag: 0x00002000,
+    },
+    HotkeyInfo {
+        id: "left_option",
+        label: "Left Option ⌥",
+        modifier_flag: 0x00080000,
+        device_flag: 0x00000020,
+    },
+    HotkeyInfo {
+        id: "right_option",
+        label: "Right Option ⌥",
+        modifier_flag: 0x00080000,
+        device_flag: 0x00000040,
+    },
+    HotkeyInfo {
+        id: "left_command",
+        label: "Left Command ⌘",
+        modifier_flag: 0x00100000,
+        device_flag: 0x00000008,
+    },
+    HotkeyInfo {
+        id: "right_command",
+        label: "Right Command ⌘",
+        modifier_flag: 0x00100000,
+        device_flag: 0x00000010,
+    },
+    HotkeyInfo {
+        id: "fn",
+        label: "Fn (Globe) 🌐",
+        modifier_flag: 0x00800000,
+        device_flag: 0,
+    },
 ];
 
 impl Config {
@@ -161,7 +217,10 @@ mod tests {
     #[test]
     fn hotkey_info_lookup() {
         let config = Config::default();
-        let config = Config { hotkey: "right_option".to_string(), ..config };
+        let config = Config {
+            hotkey: "right_option".to_string(),
+            ..config
+        };
         let info = config.hotkey_info();
         assert_eq!(info.id, "right_option");
         assert_eq!(info.modifier_flag, 0x00080000);
@@ -169,14 +228,20 @@ mod tests {
 
     #[test]
     fn hotkey_info_fallback() {
-        let config = Config { hotkey: "nonexistent".to_string(), ..Config::default() };
+        let config = Config {
+            hotkey: "nonexistent".to_string(),
+            ..Config::default()
+        };
         let info = config.hotkey_info();
         assert_eq!(info.id, "left_control");
     }
 
     #[test]
     fn position_label() {
-        let config = Config { overlay_position: OverlayPosition::Top, ..Config::default() };
+        let config = Config {
+            overlay_position: OverlayPosition::Top,
+            ..Config::default()
+        };
         assert_eq!(config.position_label(), "Top");
     }
 

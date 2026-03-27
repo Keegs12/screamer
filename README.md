@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="resources/logo.png" width="180" alt="Screamer">
+<img src="resources/logo.png" width="220" alt="Screamer">
 
 # Screamer
 
@@ -29,7 +29,7 @@ Hold a key. Speak. Release. Text appears instantly.
 Hold Left Control  ──>  Speak  ──>  Release  ──>  Text pasted instantly
 ```
 
-A frosted-glass waveform overlay appears while you speak. When you release, whisper.cpp transcribes on your GPU and the text is pasted into whatever app has focus.
+A frosted-glass waveform overlay tracks your mic input live while you speak, then settles flat when you pause. When you release, whisper.cpp transcribes on your GPU and the text is pasted into whatever app has focus.
 
 <br>
 
@@ -118,7 +118,7 @@ All models are free to download. Just run `./download_model.sh` and pick one.
 - **Metal GPU** with flash attention for fast inference on Apple Silicon
 - **CoreAudio** capture at native sample rate, resampled to 16kHz
 - **NSEvent** global monitor for modifier key detection
-- **Spring-physics** waveform with idle breathing animation
+- **Audio-reactive** waveform that mirrors live mic input and goes flat on silence
 - **Single binary** — no Electron, no Python, no runtime dependencies
 
 <br>

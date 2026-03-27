@@ -1,6 +1,7 @@
 mod app;
 mod config;
 mod hotkey;
+mod loading;
 mod overlay;
 mod paster;
 mod recorder;
@@ -39,9 +40,10 @@ fn main() {
 
     // Initialize NSApplication
     let ns_app = NSApplication::sharedApplication(mtm);
-    ns_app.setActivationPolicy(
-        objc2_app_kit::NSApplicationActivationPolicy::Accessory,
-    );
+    ns_app.setActivationPolicy(objc2_app_kit::NSApplicationActivationPolicy::Accessory);
+    ns_app.finishLaunching();
+
+    let loading = loading::LoadingWindow::show(mtm, &ns_app);
 
     // Check accessibility permissions
     if !hotkey::Hotkey::check_permissions() {
@@ -50,12 +52,16 @@ fn main() {
 
     // Create app (loads model, sets up menubar)
     let app = match app::App::new(mtm) {
-        Some(a) => a,
-        None => {
+        Ok(a) => a,
+        Err(err) => {
+            loading.close();
+            app::App::show_alert(mtm, err.title, &err.message);
             eprintln!("[screamer] Failed to initialize app");
             return;
         }
     };
+
+    loading.close();
 
     // Start hotkey listener and waveform timer
     app.start(mtm);

@@ -36,8 +36,10 @@ impl Hotkey {
         let device_flag = hotkey_info.device_flag;
         let hotkey_name = hotkey_info.label;
 
-        eprintln!("[screamer] Hotkey configured: {} (modifier=0x{:x}, device=0x{:x})",
-            hotkey_name, modifier_flag, device_flag);
+        eprintln!(
+            "[screamer] Hotkey configured: {} (modifier=0x{:x}, device=0x{:x})",
+            hotkey_name, modifier_flag, device_flag
+        );
 
         // NSEventMaskFlagsChanged = 1 << 12 = 4096
         let mask: u64 = 1 << 12;

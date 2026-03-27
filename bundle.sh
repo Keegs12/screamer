@@ -4,6 +4,7 @@ set -e
 APP="Screamer.app"
 CONTENTS="$APP/Contents"
 MODELS_DIR="models"
+SYSTEM_CODESIGN="/usr/bin/codesign"
 
 echo "=== Building Screamer ==="
 
@@ -21,6 +22,7 @@ mkdir -p "$CONTENTS/Resources/models"
 cp target/release/screamer "$CONTENTS/MacOS/Screamer"
 cp resources/Info.plist "$CONTENTS/"
 cp resources/icon.icns "$CONTENTS/Resources/"
+cp resources/logo.png "$CONTENTS/Resources/"
 cp resources/menubarTemplate.png "$CONTENTS/Resources/"
 cp resources/menubarTemplate@2x.png "$CONTENTS/Resources/"
 
@@ -34,9 +36,15 @@ if [ -d "$MODELS_DIR" ]; then
     done
 fi
 
-# Step 4: Ad-hoc sign the executable
-echo "Signing executable..."
-codesign --force --sign - "$CONTENTS/MacOS/Screamer"
+# Step 4: Ad-hoc sign the app bundle with Apple's codesign
+if [ ! -x "$SYSTEM_CODESIGN" ]; then
+    echo "Error: Apple codesign tool not found at $SYSTEM_CODESIGN"
+    exit 1
+fi
+
+echo "Signing app bundle with Apple codesign..."
+"$SYSTEM_CODESIGN" --force --sign - "$APP"
+"$SYSTEM_CODESIGN" --verify --deep --strict --verbose=2 "$APP"
 
 echo "=== Done: $APP ==="
 echo "To run: open $APP"
