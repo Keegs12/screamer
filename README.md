@@ -95,7 +95,7 @@ After first launch, grant **Accessibility** permission in:
 
 `System Settings -> Privacy & Security -> Accessibility -> Screamer`
 
-This is required for the global hotkey and paste simulation.
+This is required for the global hotkey and paste simulation. If it isn't enabled yet, Screamer will keep an in-app helper window visible and can open the exact Accessibility pane for you.
 
 `bundle.sh` will automatically try the first installed `Developer ID Application` certificate if one is available, which helps macOS keep Accessibility approval across rebuilds. If no usable certificate is installed, it falls back to ad-hoc signing and macOS may ask you to re-enable Accessibility after rebuilds.
 

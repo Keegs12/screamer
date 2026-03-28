@@ -1,5 +1,7 @@
 use crate::config::{Config, HOTKEYS, MODELS, POSITIONS};
 use crate::overlay::{Overlay, WAVEFORM_BINS};
+use crate::permission_window::PermissionWindow;
+use crate::permissions;
 use crate::recorder::Recorder;
 use crate::settings_window::SettingsWindow;
 use crate::sound::SoundPlayer;
@@ -12,6 +14,7 @@ use objc2_app_kit::{
     NSAlert, NSAlertStyle, NSApplication, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem,
 };
 use objc2_foundation::{MainThreadMarker, NSString};
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
@@ -39,6 +42,9 @@ thread_local! {
     static LIVE_TRANSCRIPTION_ENABLED: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
     static SOUND_EFFECTS_ENABLED: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
     static SETTINGS_WINDOW: RefCell<Option<Rc<SettingsWindow>>> = const { RefCell::new(None) };
+    static ACCESSIBILITY_WINDOW: RefCell<Option<Rc<PermissionWindow>>> = const { RefCell::new(None) };
+    static ACCESSIBILITY_GRANTED: Cell<bool> = const { Cell::new(false) };
+    static ACCESSIBILITY_HELPER_DISMISSED: Cell<bool> = const { Cell::new(false) };
     static STATUS_ITEM: RefCell<Option<Retained<NSStatusItem>>> = const { RefCell::new(None) };
 }
 
@@ -96,6 +102,11 @@ pub fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication) {
 }
 
 pub fn show_settings_window() {
+    if !permissions::has_accessibility_permission() {
+        show_accessibility_window();
+        return;
+    }
+
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
@@ -105,6 +116,70 @@ pub fn show_settings_window() {
     SETTINGS_WINDOW.with(|cell| {
         if let Some(window) = cell.borrow().as_ref() {
             window.show();
+        }
+    });
+}
+
+pub fn show_accessibility_window() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+
+    ACCESSIBILITY_HELPER_DISMISSED.with(|cell| {
+        cell.set(false);
+    });
+
+    let app = NSApplication::sharedApplication(mtm);
+    app.activate();
+    ACCESSIBILITY_WINDOW.with(|cell| {
+        if let Some(window) = cell.borrow().as_ref() {
+            window.show();
+        }
+    });
+}
+
+pub fn sync_accessibility_window() {
+    let granted = permissions::has_accessibility_permission();
+    let changed = ACCESSIBILITY_GRANTED.with(|cell| {
+        let previous = cell.get();
+        cell.set(granted);
+        previous != granted
+    });
+    let dismissed = ACCESSIBILITY_HELPER_DISMISSED.with(|cell| cell.get());
+
+    ACCESSIBILITY_WINDOW.with(|cell| {
+        if let Some(window) = cell.borrow().as_ref() {
+            if granted {
+                window.hide();
+            } else if !dismissed {
+                window.show();
+            }
+        }
+    });
+
+    if changed {
+        if let Some(mtm) = MainThreadMarker::new() {
+            rebuild_status_menu(mtm);
+        }
+    }
+}
+
+fn open_accessibility_settings() {
+    ACCESSIBILITY_HELPER_DISMISSED.with(|cell| {
+        cell.set(false);
+    });
+    let _ = std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        .spawn();
+}
+
+fn dismiss_accessibility_helper() {
+    ACCESSIBILITY_HELPER_DISMISSED.with(|cell| {
+        cell.set(true);
+    });
+    ACCESSIBILITY_WINDOW.with(|cell| {
+        if let Some(window) = cell.borrow().as_ref() {
+            window.hide();
         }
     });
 }
@@ -142,6 +217,16 @@ fn menu_handler_class() -> &'static AnyClass {
             builder.add_method(
                 sel!(showSettings:),
                 show_settings_action as extern "C" fn(*mut AnyObject, Sel, *mut AnyObject),
+            );
+            builder.add_method(
+                sel!(openAccessibilitySettings:),
+                open_accessibility_settings_action
+                    as extern "C" fn(*mut AnyObject, Sel, *mut AnyObject),
+            );
+            builder.add_method(
+                sel!(dismissAccessibilityHelper:),
+                dismiss_accessibility_helper_action
+                    as extern "C" fn(*mut AnyObject, Sel, *mut AnyObject),
             );
             builder.add_method(
                 sel!(selectModelPopup:),
@@ -232,6 +317,23 @@ extern "C" fn toggle_sound_effects_action(
 
 extern "C" fn show_settings_action(_this: *mut AnyObject, _sel: Sel, _sender: *mut AnyObject) {
     show_settings_window();
+}
+
+extern "C" fn open_accessibility_settings_action(
+    _this: *mut AnyObject,
+    _sel: Sel,
+    _sender: *mut AnyObject,
+) {
+    open_accessibility_settings();
+    show_accessibility_window();
+}
+
+extern "C" fn dismiss_accessibility_helper_action(
+    _this: *mut AnyObject,
+    _sel: Sel,
+    _sender: *mut AnyObject,
+) {
+    dismiss_accessibility_helper();
 }
 
 extern "C" fn select_model_popup_action(_this: *mut AnyObject, _sel: Sel, sender: *mut AnyObject) {
@@ -552,6 +654,14 @@ impl App {
             *cell.borrow_mut() = Some(settings_window);
         });
 
+        let accessibility_window = PermissionWindow::new(mtm, get_menu_handler());
+        ACCESSIBILITY_WINDOW.with(|cell| {
+            *cell.borrow_mut() = Some(accessibility_window);
+        });
+        ACCESSIBILITY_GRANTED.with(|cell| {
+            cell.set(permissions::has_accessibility_permission());
+        });
+
         let menu = Self::build_menu(mtm, &config);
         status_item.setMenu(Some(&menu));
 
@@ -575,9 +685,15 @@ impl App {
 
         unsafe {
             let menu = NSMenu::new(mtm);
+            let accessibility_granted = permissions::has_accessibility_permission();
 
             let status_line = NSMenuItem::new(mtm);
-            status_line.setTitle(&NSString::from_str("Screamer — Ready"));
+            let status_title = if accessibility_granted {
+                "Screamer — Ready"
+            } else {
+                "Screamer — Accessibility Required"
+            };
+            status_line.setTitle(&NSString::from_str(status_title));
             status_line.setEnabled(false);
             menu.addItem(&status_line);
 
@@ -586,6 +702,14 @@ impl App {
             let _: () = msg_send![&*open_item, setTarget: handler];
             open_item.setAction(Some(sel!(showSettings:)));
             menu.addItem(&open_item);
+
+            if !accessibility_granted {
+                let access_item = NSMenuItem::new(mtm);
+                access_item.setTitle(&NSString::from_str("Enable Accessibility Access"));
+                let _: () = msg_send![&*access_item, setTarget: handler];
+                access_item.setAction(Some(sel!(openAccessibilitySettings:)));
+                menu.addItem(&access_item);
+            }
 
             menu.addItem(&NSMenuItem::separatorItem(mtm));
 
@@ -729,6 +853,12 @@ impl App {
         hotkey.start_on_main_thread(
             mtm,
             move || {
+                if !permissions::has_accessibility_permission() {
+                    eprintln!("[screamer] Accessibility permission missing; showing helper");
+                    show_accessibility_window();
+                    return;
+                }
+
                 if is_rec_press
                     .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                     .is_ok()
@@ -877,6 +1007,8 @@ impl App {
             use objc2_foundation::NSTimer;
 
             let block = block2::RcBlock::new(move |_timer: *mut objc2::runtime::AnyObject| {
+                sync_accessibility_window();
+
                 let recording = is_recording.load(Ordering::Relaxed);
                 if !sound_effects_enabled.load(Ordering::Relaxed) {
                     pending_completion_sound.store(false, Ordering::SeqCst);
@@ -938,7 +1070,14 @@ fn start_recording_capture(
         return;
     }
 
-    recorder.start();
+    if let Err(err) = recorder.start() {
+        eprintln!("[screamer] Failed to start audio capture: {err}");
+        is_recording.store(false, Ordering::SeqCst);
+        if let Some(mtm) = MainThreadMarker::new() {
+            App::show_alert(mtm, "Microphone Permission Required", &err);
+        }
+        return;
+    }
 
     if !is_recording.load(Ordering::Relaxed) || recording_session.load(Ordering::Relaxed) != session
     {

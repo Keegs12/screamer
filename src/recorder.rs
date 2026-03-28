@@ -38,17 +38,17 @@ impl Recorder {
         }
     }
 
-    pub fn start(&self) {
+    pub fn start(&self) -> Result<(), String> {
         self.reset_buffers();
 
         let host = cpal::default_host();
         let device = host
             .default_input_device()
-            .expect("No input device available");
+            .ok_or_else(|| "No microphone input device is available.".to_string())?;
 
         let default_config = device
             .default_input_config()
-            .expect("No default input config");
+            .map_err(|err| format!("Unable to read the default microphone configuration: {err}"))?;
 
         eprintln!(
             "[screamer] Audio device: {:?}, config: {:?}",
@@ -107,9 +107,11 @@ impl Recorder {
                 },
                 None,
             )
-            .expect("Failed to build input stream");
+            .map_err(|err| format!("Failed to start microphone input: {err}"))?;
 
-        stream.play().expect("Failed to start audio stream");
+        stream
+            .play()
+            .map_err(|err| format!("Failed to start audio capture: {err}"))?;
         eprintln!(
             "[screamer] Audio stream started ({}Hz, {}ch)",
             sample_rate, channels
@@ -118,6 +120,8 @@ impl Recorder {
         if let Ok(mut s) = self.stream.lock() {
             *s = Some(stream);
         }
+
+        Ok(())
     }
 
     pub fn stop(&self) -> Vec<f32> {

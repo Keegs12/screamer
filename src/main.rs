@@ -7,6 +7,8 @@ mod loading;
 mod model_paths;
 mod overlay;
 mod paster;
+mod permission_window;
+mod permissions;
 mod recorder;
 mod settings_window;
 mod sound;
@@ -52,9 +54,20 @@ fn main() {
 
     let loading = loading::LoadingWindow::show(mtm, &ns_app);
 
-    // Check accessibility permissions
-    if !hotkey::Hotkey::check_permissions() {
-        eprintln!("[screamer] WARNING: Accessibility permissions not granted");
+    let permission_status = permissions::request_startup_permissions();
+    if !permission_status.microphone_granted {
+        eprintln!("[screamer] WARNING: Microphone permission not granted");
+    }
+    if !permission_status.accessibility_granted {
+        eprintln!("[screamer] WARNING: Accessibility permission not granted");
+    }
+    if !permission_status.microphone_granted {
+        let mut message = String::new();
+        message.push_str(
+            "Grant Microphone access so Screamer can record your speech.\n\n",
+        );
+        message.push_str("You can change these in System Settings > Privacy & Security.");
+        app::App::show_alert(mtm, "Permissions Required", &message);
     }
 
     let config = config::Config::load();
@@ -94,7 +107,11 @@ fn main() {
     // Start hotkey listener and waveform timer
     app.start(mtm);
     loading.close();
-    app::show_settings_window();
+    if permission_status.accessibility_granted {
+        app::show_settings_window();
+    } else {
+        app::show_accessibility_window();
+    }
 
     eprintln!("[screamer] Ready — hold Left Control to record");
 

@@ -15,11 +15,6 @@ impl Hotkey {
         }
     }
 
-    pub fn check_permissions() -> bool {
-        // NSEvent global monitor doesn't need accessibility for modifier keys
-        true
-    }
-
     /// Start listening using NSEvent global monitor on the main thread.
     /// Reads hotkey config to determine which modifier key to watch.
     pub fn start_on_main_thread(

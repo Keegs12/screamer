@@ -6,7 +6,6 @@ use std::time::Duration;
 const VK_ANSI_V: CGKeyCode = 9;
 
 pub fn paste(text: &str) {
-    // Write to clipboard
     if let Ok(mut clipboard) = arboard::Clipboard::new() {
         if let Err(e) = clipboard.set_text(text) {
             log::error!("Failed to set clipboard: {}", e);
