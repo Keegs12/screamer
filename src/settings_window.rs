@@ -24,6 +24,10 @@ const POPUP_WIDTH: f64 = 238.0;
 const POPUP_HEIGHT: f64 = 30.0;
 const SWITCH_WIDTH: f64 = 52.0;
 const SWITCH_HEIGHT: f64 = 28.0;
+const ACTION_BUTTON_HEIGHT: f64 = 30.0;
+const PERMISSION_BUTTON_WIDTH: f64 = 114.0;
+const PERMISSION_BUTTON_GAP: f64 = 10.0;
+const PERMISSION_SHORTCUTS_WIDTH: f64 = PERMISSION_BUTTON_WIDTH * 2.0 + PERMISSION_BUTTON_GAP;
 const LOGO_SIZE: f64 = 84.0;
 
 pub struct SettingsWindow {
@@ -170,18 +174,16 @@ impl SettingsWindow {
             sel!(setSoundEffectsEnabled:),
         );
 
-        let accessibility_button = action_button(
+        let permission_shortcuts = permission_shortcuts_view(
             mtm,
             CGRect::new(
                 CGPoint::new(
-                    CARD_WIDTH - CARD_INSET - POPUP_WIDTH,
-                    (ROW_HEIGHT - POPUP_HEIGHT) / 2.0,
+                    CARD_WIDTH - CARD_INSET - PERMISSION_SHORTCUTS_WIDTH,
+                    (ROW_HEIGHT - ACTION_BUTTON_HEIGHT) / 2.0,
                 ),
-                CGSize::new(POPUP_WIDTH, POPUP_HEIGHT),
+                CGSize::new(PERMISSION_SHORTCUTS_WIDTH, ACTION_BUTTON_HEIGHT),
             ),
-            "Open Accessibility Settings",
             handler,
-            sel!(openAccessibilitySettings:),
         );
 
         let mut row_y = title_y - 18.0 - ROW_HEIGHT;
@@ -200,7 +202,7 @@ impl SettingsWindow {
         add_row(mtm, &content, row_y, "Sound Effects", &sound_switch);
 
         row_y -= CARD_SPACING + ROW_HEIGHT;
-        add_row(mtm, &content, row_y, "Accessibility", &accessibility_button);
+        add_row(mtm, &content, row_y, "Permissions", &permission_shortcuts);
 
         let settings = Rc::new(Self {
             window,
@@ -341,6 +343,41 @@ fn action_button(
     button.setFrame(frame);
     button.setButtonType(NSButtonType::MomentaryPushIn);
     button
+}
+
+fn permission_shortcuts_view(
+    mtm: MainThreadMarker,
+    frame: CGRect,
+    handler: *const AnyObject,
+) -> Retained<NSView> {
+    let container = NSView::new(mtm);
+    container.setFrame(frame);
+
+    let microphone_button = action_button(
+        mtm,
+        CGRect::new(
+            CGPoint::new(0.0, 0.0),
+            CGSize::new(PERMISSION_BUTTON_WIDTH, ACTION_BUTTON_HEIGHT),
+        ),
+        "Microphone",
+        handler,
+        sel!(openMicrophoneSettings:),
+    );
+    container.addSubview(&microphone_button);
+
+    let accessibility_button = action_button(
+        mtm,
+        CGRect::new(
+            CGPoint::new(PERMISSION_BUTTON_WIDTH + PERMISSION_BUTTON_GAP, 0.0),
+            CGSize::new(PERMISSION_BUTTON_WIDTH, ACTION_BUTTON_HEIGHT),
+        ),
+        "Accessibility",
+        handler,
+        sel!(openAccessibilitySettings:),
+    );
+    container.addSubview(&accessibility_button);
+
+    container
 }
 
 fn surface_view(

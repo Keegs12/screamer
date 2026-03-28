@@ -42,6 +42,8 @@ const RELAUNCH_SHELL: &str = "/bin/sh";
 const OPEN_COMMAND: &str = "/usr/bin/open";
 const ACCESSIBILITY_SETTINGS_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+const MICROPHONE_SETTINGS_URL: &str =
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
 
 // Thread-local overlay reference so menu handlers can update position without relaunch.
 // Safe because all menu handlers and overlay access run on the main thread.
@@ -53,6 +55,7 @@ thread_local! {
     static ACCESSIBILITY_WINDOW: RefCell<Option<Rc<PermissionWindow>>> = const { RefCell::new(None) };
     static ACCESSIBILITY_GRANTED: Cell<bool> = const { Cell::new(false) };
     static ACCESSIBILITY_HELPER_DISMISSED: Cell<bool> = const { Cell::new(false) };
+    static MICROPHONE_PERMISSION_REMINDER_SHOWN: Cell<bool> = const { Cell::new(false) };
     static STATUS_ITEM: RefCell<Option<Retained<NSStatusItem>>> = const { RefCell::new(None) };
 }
 
@@ -184,6 +187,15 @@ fn open_accessibility_settings() {
     }
 }
 
+fn open_microphone_settings() {
+    if let Err(err) = std::process::Command::new(OPEN_COMMAND)
+        .arg(MICROPHONE_SETTINGS_URL)
+        .spawn()
+    {
+        eprintln!("[screamer] Failed to open Microphone settings: {err}");
+    }
+}
+
 fn dismiss_accessibility_helper() {
     set_accessibility_helper_dismissed(true);
     ACCESSIBILITY_WINDOW.with(|cell| {
@@ -231,6 +243,11 @@ fn menu_handler_class() -> &'static AnyClass {
             builder.add_method(
                 sel!(openAccessibilitySettings:),
                 open_accessibility_settings_action
+                    as extern "C" fn(*mut AnyObject, Sel, *mut AnyObject),
+            );
+            builder.add_method(
+                sel!(openMicrophoneSettings:),
+                open_microphone_settings_action
                     as extern "C" fn(*mut AnyObject, Sel, *mut AnyObject),
             );
             builder.add_method(
@@ -335,6 +352,14 @@ extern "C" fn open_accessibility_settings_action(
     _sender: *mut AnyObject,
 ) {
     open_accessibility_settings();
+}
+
+extern "C" fn open_microphone_settings_action(
+    _this: *mut AnyObject,
+    _sel: Sel,
+    _sender: *mut AnyObject,
+) {
+    open_microphone_settings();
 }
 
 extern "C" fn dismiss_accessibility_helper_action(
@@ -1090,6 +1115,32 @@ fn start_recording_capture(
 ) {
     if !is_recording.load(Ordering::Relaxed) || recording_session.load(Ordering::Relaxed) != session
     {
+        return;
+    }
+
+    if !permissions::has_microphone_permission() {
+        eprintln!("[screamer] Microphone permission missing; skipping audio capture");
+        is_recording.store(false, Ordering::SeqCst);
+
+        let should_remind = MICROPHONE_PERMISSION_REMINDER_SHOWN.with(|cell| {
+            let shown = cell.get();
+            if !shown {
+                cell.set(true);
+            }
+            !shown
+        });
+
+        if should_remind {
+            open_microphone_settings();
+            if let Some(mtm) = MainThreadMarker::new() {
+                App::show_alert(
+                    mtm,
+                    "Microphone Permission Required",
+                    "Enable Screamer in System Settings -> Privacy & Security -> Microphone, then try recording again.",
+                );
+            }
+        }
+
         return;
     }
 

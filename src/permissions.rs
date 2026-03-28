@@ -43,37 +43,56 @@ pub fn has_accessibility_permission() -> bool {
     unsafe { AXIsProcessTrusted() }
 }
 
+pub fn has_microphone_permission() -> bool {
+    microphone_authorization_status()
+        .map(|status| status == AV_AUTHORIZATION_STATUS_AUTHORIZED)
+        .unwrap_or(true)
+}
+
 fn request_microphone_access_if_needed() -> bool {
+    let Some(status) = microphone_authorization_status() else {
+        return true;
+    };
+
+    match status {
+        AV_AUTHORIZATION_STATUS_AUTHORIZED => true,
+        AV_AUTHORIZATION_STATUS_NOT_DETERMINED => request_microphone_access(),
+        AV_AUTHORIZATION_STATUS_DENIED => false,
+        _ => false,
+    }
+}
+
+fn microphone_authorization_status() -> Option<isize> {
+    let Some(capture_device_class) = AnyClass::get(c"AVCaptureDevice") else {
+        eprintln!("[screamer] AVCaptureDevice class unavailable");
+        return None;
+    };
+
+    let media_type = NSString::from_str("soun");
+    Some(unsafe { msg_send![capture_device_class, authorizationStatusForMediaType: &*media_type] })
+}
+
+fn request_microphone_access() -> bool {
     let Some(capture_device_class) = AnyClass::get(c"AVCaptureDevice") else {
         eprintln!("[screamer] AVCaptureDevice class unavailable");
         return true;
     };
 
     let media_type = NSString::from_str("soun");
-    let status: isize =
-        unsafe { msg_send![capture_device_class, authorizationStatusForMediaType: &*media_type] };
+    let (tx, rx) = mpsc::channel();
+    let block = block2::RcBlock::new(move |granted: Bool| {
+        let _ = tx.send(granted.as_bool());
+    });
 
-    match status {
-        AV_AUTHORIZATION_STATUS_AUTHORIZED => true,
-        AV_AUTHORIZATION_STATUS_NOT_DETERMINED => {
-            let (tx, rx) = mpsc::channel();
-            let block = block2::RcBlock::new(move |granted: Bool| {
-                let _ = tx.send(granted.as_bool());
-            });
-
-            unsafe {
-                let _: () = msg_send![
-                    capture_device_class,
-                    requestAccessForMediaType: &*media_type,
-                    completionHandler: &*block
-                ];
-            }
-
-            rx.recv_timeout(Duration::from_secs(30)).unwrap_or(false)
-        }
-        AV_AUTHORIZATION_STATUS_DENIED => false,
-        _ => false,
+    unsafe {
+        let _: () = msg_send![
+            capture_device_class,
+            requestAccessForMediaType: &*media_type,
+            completionHandler: &*block
+        ];
     }
+
+    rx.recv_timeout(Duration::from_secs(30)).unwrap_or(false)
 }
 
 fn request_accessibility_if_needed() -> bool {
