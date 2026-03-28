@@ -11,7 +11,8 @@ PLIST_BUDDY="${PLIST_BUDDY:-/usr/libexec/PlistBuddy}"
 SYSTEM_CODESIGN="${SYSTEM_CODESIGN:-/usr/bin/codesign}"
 SYSTEM_SECURITY="${SYSTEM_SECURITY:-/usr/bin/security}"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
-CODESIGN_ENTITLEMENTS="${CODESIGN_ENTITLEMENTS:-}"
+DEFAULT_ENTITLEMENTS="resources/Screamer.entitlements"
+CODESIGN_ENTITLEMENTS="${CODESIGN_ENTITLEMENTS:-$DEFAULT_ENTITLEMENTS}"
 APP_VERSION="${APP_VERSION:-$(awk -F '\"' '/^version = / { print $2; exit }' Cargo.toml)}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 
@@ -45,7 +46,7 @@ sign_target() {
 
     if [ "$CODESIGN_IDENTITY" != "-" ]; then
         sign_args+=(--timestamp --options runtime)
-        if [ -n "$CODESIGN_ENTITLEMENTS" ]; then
+        if [ -n "$CODESIGN_ENTITLEMENTS" ] && [ -f "$CODESIGN_ENTITLEMENTS" ]; then
             sign_args+=(--entitlements "$CODESIGN_ENTITLEMENTS")
         fi
     fi
@@ -69,6 +70,9 @@ if [ "$CODESIGN_IDENTITY" = "-" ]; then
     echo "Signing identity: ad-hoc"
 else
     echo "Signing identity: $CODESIGN_IDENTITY"
+fi
+if [ -n "$CODESIGN_ENTITLEMENTS" ] && [ -f "$CODESIGN_ENTITLEMENTS" ]; then
+    echo "Signing entitlements: $CODESIGN_ENTITLEMENTS"
 fi
 
 # Step 1: Build release binary unless a prebuilt one was provided.

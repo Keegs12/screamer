@@ -115,6 +115,12 @@ jobs:
           CODESIGN_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
         run: ./bundle.sh
 
+      - name: Verify microphone entitlement
+        run: |
+          ENTITLEMENTS="$(/usr/bin/codesign -d --entitlements - -- Screamer.app 2>&1)"
+          printf '%s\n' "$ENTITLEMENTS"
+          grep -q "com.apple.security.device.audio-input" <<<"$ENTITLEMENTS"
+
       - name: Create DMG
         env:
           APP_VERSION: ${{ steps.meta.outputs.version }}
