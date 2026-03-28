@@ -15,7 +15,7 @@ GGML_NATIVE=OFF ./bundle.sh
 ./create_dmg.sh
 ```
 
-That produces a versioned DMG in `dist/`, for example `dist/Screamer-1.0.1.dmg`.
+That produces a versioned DMG in `dist/`, for example `dist/Screamer-1.0.0.dmg`.
 
 For public distribution, sign and notarize it instead of using the default ad-hoc signature:
 
@@ -27,7 +27,7 @@ export APPLE_TEAM_ID="TEAMID"
 
 GGML_NATIVE=OFF ./bundle.sh
 ./create_dmg.sh
-./notarize_dmg.sh dist/Screamer-1.0.1.dmg
+./notarize_dmg.sh dist/Screamer-1.0.0.dmg
 ```
 
 `bundle.sh` uses the Cargo version as the source of truth and writes that into the built app bundle's `Info.plist`.
