@@ -10,7 +10,7 @@ This repo now supports two DMG release paths:
 Use this when you want to verify the packaging flow on your own Mac.
 
 ```bash
-./download_model.sh base
+./download_model.sh bundled
 GGML_NATIVE=OFF ./bundle.sh
 ./create_dmg.sh
 ```
@@ -66,7 +66,7 @@ Paste that into the `APPLE_CERTIFICATE_P12_BASE64` GitHub secret.
 ### On every push to `main` or manual workflow dispatch
 
 - Builds a universal macOS binary (`arm64` + `x86_64`)
-- Bundles the app and the default `base` Whisper model
+- Bundles the app with the `tiny`, `base`, and `small` Whisper models
 - Signs and notarizes if the Apple secrets are present
 - Updates a prerelease tagged `continuous`
 - Uploads the DMG asset as `Screamer-latest.dmg`

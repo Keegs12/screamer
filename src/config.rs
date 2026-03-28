@@ -12,6 +12,14 @@ pub enum OverlayPosition {
     Bottom,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppAppearance {
+    #[default]
+    Dark,
+    Light,
+}
+
 pub struct PositionInfo {
     pub id: OverlayPosition,
     pub label: &'static str,
@@ -32,12 +40,30 @@ pub const POSITIONS: &[PositionInfo] = &[
     },
 ];
 
+pub struct AppearanceInfo {
+    pub id: AppAppearance,
+    pub label: &'static str,
+}
+
+pub const APPEARANCES: &[AppearanceInfo] = &[
+    AppearanceInfo {
+        id: AppAppearance::Dark,
+        label: "Dark",
+    },
+    AppearanceInfo {
+        id: AppAppearance::Light,
+        label: "Light",
+    },
+];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub model: String,
     pub hotkey: String,
     #[serde(default)]
     pub overlay_position: OverlayPosition,
+    #[serde(default)]
+    pub appearance: AppAppearance,
     #[serde(default = "default_live_transcription")]
     pub live_transcription: bool,
     #[serde(default = "default_sound_effects")]
@@ -54,6 +80,7 @@ impl Default for Config {
             model: "base".to_string(),
             hotkey: "left_control".to_string(),
             overlay_position: OverlayPosition::default(),
+            appearance: AppAppearance::default(),
             live_transcription: default_live_transcription(),
             sound_effects: default_sound_effects(),
             show_accessibility_helper_on_launch: default_show_accessibility_helper_on_launch(),
@@ -227,6 +254,14 @@ impl Config {
             .unwrap_or("Center")
     }
 
+    pub fn appearance_label(&self) -> &'static str {
+        APPEARANCES
+            .iter()
+            .find(|appearance| appearance.id == self.appearance)
+            .map(|appearance| appearance.label)
+            .unwrap_or("Dark")
+    }
+
     fn normalized(mut self) -> Self {
         let default = Self::default();
 
@@ -236,6 +271,13 @@ impl Config {
 
         if !HOTKEYS.iter().any(|hotkey| hotkey.id == self.hotkey) {
             self.hotkey = default.hotkey;
+        }
+
+        if !APPEARANCES
+            .iter()
+            .any(|appearance| appearance.id == self.appearance)
+        {
+            self.appearance = default.appearance;
         }
 
         self
@@ -252,6 +294,7 @@ mod tests {
         assert_eq!(config.model, "base");
         assert_eq!(config.hotkey, "left_control");
         assert_eq!(config.overlay_position, OverlayPosition::Center);
+        assert_eq!(config.appearance, AppAppearance::Dark);
         assert!(config.live_transcription);
         assert!(config.sound_effects);
         assert!(config.show_accessibility_helper_on_launch);
@@ -264,6 +307,7 @@ mod tests {
             model: "tiny".to_string(),
             hotkey: "fn".to_string(),
             overlay_position: OverlayPosition::Bottom,
+            appearance: AppAppearance::Light,
             live_transcription: false,
             sound_effects: false,
             show_accessibility_helper_on_launch: false,
@@ -274,6 +318,7 @@ mod tests {
         assert_eq!(parsed.model, "tiny");
         assert_eq!(parsed.hotkey, "fn");
         assert_eq!(parsed.overlay_position, OverlayPosition::Bottom);
+        assert_eq!(parsed.appearance, AppAppearance::Light);
         assert!(!parsed.live_transcription);
         assert!(!parsed.sound_effects);
         assert!(!parsed.show_accessibility_helper_on_launch);
@@ -286,6 +331,7 @@ mod tests {
         let json = r#"{"model":"base","hotkey":"left_control"}"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.overlay_position, OverlayPosition::Center);
+        assert_eq!(config.appearance, AppAppearance::Dark);
         assert!(config.live_transcription);
         assert!(config.sound_effects);
         assert!(config.show_accessibility_helper_on_launch);
@@ -321,6 +367,15 @@ mod tests {
             ..Config::default()
         };
         assert_eq!(config.position_label(), "Top");
+    }
+
+    #[test]
+    fn appearance_label() {
+        let config = Config {
+            appearance: AppAppearance::Light,
+            ..Config::default()
+        };
+        assert_eq!(config.appearance_label(), "Light");
     }
 
     #[test]

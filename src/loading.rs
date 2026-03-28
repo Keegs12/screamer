@@ -1,3 +1,5 @@
+use crate::config::AppAppearance;
+use crate::theme;
 use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2_app_kit::{
@@ -14,6 +16,7 @@ const PANEL_HEIGHT: f64 = 208.0;
 const UI_PUMP_INTERVAL_SECS: f64 = 1.0 / 120.0;
 const CONTENT_WIDTH: f64 = PANEL_WIDTH - 48.0;
 const LOGO_SIZE: f64 = 72.0;
+const LOGO_BADGE_SIZE: f64 = 92.0;
 const TITLE_HEIGHT: f64 = 26.0;
 const SUBTITLE_HEIGHT: f64 = 20.0;
 const DIVIDER_HEIGHT: f64 = 1.0;
@@ -28,7 +31,7 @@ pub struct LoadingWindow {
 }
 
 impl LoadingWindow {
-    pub fn show(mtm: MainThreadMarker, app: &NSApplication) -> Self {
+    pub fn show(mtm: MainThreadMarker, app: &NSApplication, appearance: AppAppearance) -> Self {
         let style = NSWindowStyleMask::Borderless;
         let frame = CGRect::new(
             CGPoint::new(0.0, 0.0),
@@ -66,7 +69,7 @@ impl LoadingWindow {
         if let Some(layer) = content_view.layer() {
             layer.setCornerRadius(22.0 as CGFloat);
             layer.setMasksToBounds(true);
-            let background = NSColor::colorWithCalibratedWhite_alpha(0.08, 0.96);
+            let background = theme::loading_panel_background(appearance);
             unsafe {
                 let cg_color: *const std::ffi::c_void = msg_send![&background, CGColor];
                 let _: () = msg_send![&*layer, setBackgroundColor: cg_color];
@@ -91,6 +94,20 @@ impl LoadingWindow {
         let logo_y = title_y + TITLE_HEIGHT + LOGO_TITLE_GAP;
 
         if let Some(logo) = load_logo(mtm) {
+            let badge = NSView::new(mtm);
+            badge.setFrame(CGRect::new(
+                CGPoint::new((PANEL_WIDTH - LOGO_BADGE_SIZE) / 2.0, logo_y - 10.0),
+                CGSize::new(LOGO_BADGE_SIZE, LOGO_BADGE_SIZE),
+            ));
+            style_surface(
+                &badge,
+                &theme::logo_badge_background(appearance),
+                &theme::logo_badge_border(appearance),
+                LOGO_BADGE_SIZE / 2.0,
+            );
+            badge.setHidden(matches!(appearance, AppAppearance::Dark));
+            content_view.addSubview(&badge);
+
             let logo_view = NSImageView::new(mtm);
             logo_view.setFrame(CGRect::new(
                 CGPoint::new((PANEL_WIDTH - LOGO_SIZE) / 2.0, logo_y),
@@ -109,7 +126,7 @@ impl LoadingWindow {
                 CGSize::new(CONTENT_WIDTH, TITLE_HEIGHT),
             ),
             18.0,
-            0.96,
+            &theme::title_text(appearance),
         );
         title.setAlignment(NSTextAlignment(2));
         content_view.addSubview(&title);
@@ -122,7 +139,7 @@ impl LoadingWindow {
                 CGSize::new(CONTENT_WIDTH, SUBTITLE_HEIGHT),
             ),
             12.5,
-            0.72,
+            &theme::secondary_text(appearance),
         );
         subtitle.setAlignment(NSTextAlignment(2));
         subtitle.setMaximumNumberOfLines(2);
@@ -135,7 +152,7 @@ impl LoadingWindow {
         ));
         divider.setWantsLayer(true);
         if let Some(layer) = divider.layer() {
-            let border = NSColor::colorWithCalibratedWhite_alpha(1.0, 0.12);
+            let border = theme::loading_divider(appearance);
             unsafe {
                 let cg_color: *const std::ffi::c_void = msg_send![&border, CGColor];
                 let _: () = msg_send![&*layer, setBackgroundColor: cg_color];
@@ -186,7 +203,7 @@ fn label(
     text: &str,
     frame: CGRect,
     font_size: f64,
-    alpha: f64,
+    color: &NSColor,
 ) -> Retained<NSTextField> {
     let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
     label.setFrame(frame);
@@ -195,9 +212,24 @@ fn label(
     label.setBezeled(false);
     label.setEditable(false);
     label.setSelectable(false);
-    label.setTextColor(Some(&NSColor::colorWithCalibratedWhite_alpha(1.0, alpha)));
+    label.setTextColor(Some(color));
     label.setFont(Some(&objc2_app_kit::NSFont::systemFontOfSize(font_size)));
     label
+}
+
+fn style_surface(view: &NSView, background: &NSColor, border: &NSColor, radius: f64) {
+    view.setWantsLayer(true);
+    if let Some(layer) = view.layer() {
+        layer.setCornerRadius(radius as CGFloat);
+        layer.setMasksToBounds(true);
+        layer.setBorderWidth(1.0);
+        unsafe {
+            let bg_color: *const std::ffi::c_void = msg_send![background, CGColor];
+            let border_color: *const std::ffi::c_void = msg_send![border, CGColor];
+            let _: () = msg_send![&*layer, setBackgroundColor: bg_color];
+            let _: () = msg_send![&*layer, setBorderColor: border_color];
+        }
+    }
 }
 
 fn load_logo(mtm: MainThreadMarker) -> Option<Retained<NSImage>> {

@@ -30,6 +30,16 @@ case "$MODEL" in
         FILE="ggml-large.en.bin"
         SIZE="~3.1 GB"
         ;;
+    bundled)
+        echo "Downloading bundled app models..."
+        "$0" tiny
+        "$0" base
+        "$0" small
+        echo ""
+        echo "Bundled app models downloaded!"
+        ls -lh "$MODELS_DIR"/ggml-tiny.en.bin "$MODELS_DIR"/ggml-base.en.bin "$MODELS_DIR"/ggml-small.en.bin
+        exit 0
+        ;;
     all)
         echo "Downloading all models..."
         "$0" tiny
@@ -42,13 +52,14 @@ case "$MODEL" in
         exit 0
         ;;
     *)
-        echo "Usage: $0 [tiny|base|small|large|all]"
+        echo "Usage: $0 [tiny|base|small|large|bundled|all]"
         echo ""
         echo "Models:"
         echo "  tiny   ~75 MB   Fastest, good for simple phrases"
         echo "  base   ~142 MB  Fast, great for most use cases (default)"
         echo "  small  ~466 MB  Moderate speed, better accuracy"
         echo "  large  ~3.1 GB  Slowest, highest accuracy"
+        echo "  bundled         Download the app bundle set (tiny, base, small)"
         echo "  all    Download all models"
         exit 1
         ;;

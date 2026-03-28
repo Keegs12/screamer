@@ -13,6 +13,7 @@ mod permissions;
 mod recorder;
 mod settings_window;
 mod sound;
+mod theme;
 mod transcriber;
 
 use objc2_app_kit::NSApplication;
@@ -40,9 +41,11 @@ fn main() {
     app::install_main_menu(mtm, &ns_app);
     ns_app.finishLaunching();
 
-    let loading = loading::LoadingWindow::show(mtm, &ns_app);
-
     let mut config = config::Config::load();
+    theme::apply_app_appearance(mtm, config.appearance);
+
+    let loading = loading::LoadingWindow::show(mtm, &ns_app, config.appearance);
+
     let should_prompt_accessibility =
         !permissions::has_accessibility_permission() && config.show_accessibility_helper_on_launch;
     let permission_status = permissions::request_startup_permissions(should_prompt_accessibility);

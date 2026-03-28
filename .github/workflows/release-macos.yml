@@ -43,13 +43,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: models
-          key: whisper-model-base-en-v1
+          key: whisper-models-bundled-v1
 
       - name: Install system dependencies
         run: brew install cmake
 
-      - name: Download bundled model
-        run: ./download_model.sh base
+      - name: Download bundled models
+        run: ./download_model.sh bundled
 
       - name: Determine release metadata
         id: meta

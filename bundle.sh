@@ -15,6 +15,11 @@ DEFAULT_ENTITLEMENTS="resources/Screamer.entitlements"
 CODESIGN_ENTITLEMENTS="${CODESIGN_ENTITLEMENTS:-$DEFAULT_ENTITLEMENTS}"
 APP_VERSION="${APP_VERSION:-$(awk -F '\"' '/^version = / { print $2; exit }' Cargo.toml)}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
+REQUIRED_MODELS=(
+    "ggml-tiny.en.bin"
+    "ggml-base.en.bin"
+    "ggml-small.en.bin"
+)
 
 detect_codesign_identity() {
     if [ -n "$CODESIGN_IDENTITY" ]; then
@@ -107,14 +112,30 @@ if [ -x "$PLIST_BUDDY" ]; then
     "$PLIST_BUDDY" -c "Set :CFBundleVersion $APP_VERSION" "$INFO_PLIST"
 fi
 
-# Step 3: Copy bundled models if present.
-if [ -d "$MODELS_DIR" ]; then
-    for model in "$MODELS_DIR"/*.bin; do
-        if [ -f "$model" ]; then
-            echo "Bundling model: $(basename "$model")"
-            cp "$model" "$CONTENTS/Resources/models/"
-        fi
-    done
+# Step 3: Copy required bundled models.
+if [ ! -d "$MODELS_DIR" ]; then
+    echo "Error: models directory not found at $MODELS_DIR"
+    echo "Run ./download_model.sh bundled first."
+    exit 1
+fi
+
+missing_models=()
+for model_name in "${REQUIRED_MODELS[@]}"; do
+    model_path="$MODELS_DIR/$model_name"
+    if [ ! -f "$model_path" ]; then
+        missing_models+=("$model_name")
+        continue
+    fi
+
+    echo "Bundling model: $model_name"
+    cp "$model_path" "$CONTENTS/Resources/models/"
+done
+
+if [ "${#missing_models[@]}" -ne 0 ]; then
+    echo "Error: missing required bundled models:"
+    printf '  - %s\n' "${missing_models[@]}"
+    echo "Run ./download_model.sh bundled and try again."
+    exit 1
 fi
 
 if [ ! -x "$SYSTEM_CODESIGN" ]; then

@@ -91,7 +91,7 @@ Build from source:
 ```bash
 git clone https://github.com/suvamsh/screamer.git
 cd screamer
-./download_model.sh base
+./download_model.sh bundled
 GGML_NATIVE=OFF cargo build --release
 ./bundle.sh
 open Screamer.app
@@ -116,6 +116,7 @@ Config lives at `~/Library/Application Support/Screamer/config.json`:
   "model": "base",
   "hotkey": "left_control",
   "overlay_position": "center",
+  "appearance": "dark",
   "live_transcription": true,
   "sound_effects": true,
   "show_accessibility_helper_on_launch": true,
@@ -128,6 +129,7 @@ Key settings:
 - `model`: Whisper model to use
 - `hotkey`: push-to-talk key
 - `overlay_position`: overlay placement
+- `appearance`: app theme
 - `live_transcription`: live preview in the overlay
 - `sound_effects`: start and finish cue sounds
 - `show_accessibility_helper_on_launch`: whether the helper window should appear on first launch

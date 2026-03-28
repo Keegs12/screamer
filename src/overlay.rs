@@ -1,4 +1,5 @@
-use crate::config::OverlayPosition;
+use crate::config::{AppAppearance, OverlayPosition};
+use crate::theme;
 use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2_app_kit::{
@@ -29,12 +30,14 @@ const POSITION_MARGIN: f64 = 40.0;
 
 pub struct Overlay {
     panel: Retained<NSPanel>,
+    effect_view: Retained<NSVisualEffectView>,
     bar_views: Vec<Retained<NSView>>,
     transcript_label: Retained<NSTextField>,
     current_heights: [f64; NUM_BARS],
     current_transcript: String,
     visible: bool,
     position: OverlayPosition,
+    appearance: AppAppearance,
 }
 
 fn waveform_level_for_bar(bar_idx: usize, waveform: &[f32]) -> f64 {
@@ -53,7 +56,7 @@ fn smooth_height(current: f64, target: f64) -> f64 {
 }
 
 impl Overlay {
-    pub fn new(mtm: MainThreadMarker, position: OverlayPosition) -> Self {
+    pub fn new(mtm: MainThreadMarker, position: OverlayPosition, appearance: AppAppearance) -> Self {
         let style = NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel;
 
         let frame = CGRect::new(
@@ -114,7 +117,6 @@ impl Overlay {
             label.setAlignment(NSTextAlignment(2));
             label.setMaximumNumberOfLines(2);
             label.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
-            label.setTextColor(Some(&NSColor::colorWithCalibratedWhite_alpha(1.0, 0.90)));
             label.setFont(Some(&objc2_app_kit::NSFont::systemFontOfSize(12.5)));
             label
         };
@@ -132,18 +134,6 @@ impl Overlay {
                 ));
                 view.setWantsLayer(true);
                 if let Some(layer) = view.layer() {
-                    let dist_from_center = ((i as f64) - (NUM_BARS - 1) as f64 / 2.0).abs()
-                        / ((NUM_BARS - 1) as f64 / 2.0);
-                    let glow = 1.0 - dist_from_center * 0.45;
-                    let r = 0.98;
-                    let g = 0.80 + 0.16 * glow;
-                    let b = 0.22 + 0.08 * glow;
-                    let alpha = 0.40 + 0.24 * glow;
-                    let ns_color = NSColor::colorWithRed_green_blue_alpha(r, g, b, alpha);
-                    unsafe {
-                        let cg_color: *const std::ffi::c_void = msg_send![&ns_color, CGColor];
-                        let _: () = msg_send![&*layer, setBackgroundColor: cg_color];
-                    }
                     layer.setCornerRadius((BAR_WIDTH / 2.0) as CGFloat);
                 }
                 view
@@ -162,13 +152,16 @@ impl Overlay {
 
         let s = Self {
             panel,
+            effect_view,
             bar_views,
             transcript_label,
             current_heights: [BAR_MIN_HEIGHT; NUM_BARS],
             current_transcript: String::new(),
             visible: false,
             position,
+            appearance,
         };
+        s.apply_theme();
         s.apply_position(mtm);
         s
     }
@@ -231,6 +224,11 @@ impl Overlay {
         self.apply_position(mtm);
     }
 
+    pub fn set_appearance(&mut self, appearance: AppAppearance) {
+        self.appearance = appearance;
+        self.apply_theme();
+    }
+
     fn apply_position(&self, mtm: MainThreadMarker) {
         if let Some(screen) = NSScreen::mainScreen(mtm) {
             let sf = screen.frame();
@@ -286,6 +284,36 @@ impl Overlay {
 
     fn transcript_above_waveform(position: OverlayPosition) -> bool {
         !matches!(position, OverlayPosition::Top)
+    }
+
+    fn apply_theme(&self) {
+        let transcript_color = theme::overlay_transcript_text(self.appearance);
+        self.transcript_label.setTextColor(Some(&transcript_color));
+
+        if let Some(layer) = self.effect_view.layer() {
+            layer.setBorderWidth(1.0);
+            unsafe {
+                let bg = theme::overlay_panel_fill(self.appearance);
+                let bg_color: *const std::ffi::c_void = msg_send![&bg, CGColor];
+                let border = theme::overlay_panel_border(self.appearance);
+                let border_color: *const std::ffi::c_void = msg_send![&border, CGColor];
+                let _: () = msg_send![&*layer, setBackgroundColor: bg_color];
+                let _: () = msg_send![&*layer, setBorderColor: border_color];
+            }
+        }
+
+        for (index, bar) in self.bar_views.iter().enumerate() {
+            if let Some(layer) = bar.layer() {
+                let dist_from_center = ((index as f64) - (NUM_BARS - 1) as f64 / 2.0).abs()
+                    / ((NUM_BARS - 1) as f64 / 2.0);
+                let glow = 1.0 - dist_from_center * 0.45;
+                let ns_color = theme::overlay_bar_color(self.appearance, glow);
+                unsafe {
+                    let cg_color: *const std::ffi::c_void = msg_send![&ns_color, CGColor];
+                    let _: () = msg_send![&*layer, setBackgroundColor: cg_color];
+                }
+            }
+        }
     }
 }
 

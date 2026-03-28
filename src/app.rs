@@ -1,4 +1,4 @@
-use crate::config::{Config, HOTKEYS, MODELS, POSITIONS};
+use crate::config::{AppAppearance, Config, HOTKEYS, MODELS, POSITIONS};
 use crate::logging;
 use crate::overlay::{Overlay, WAVEFORM_BINS};
 use crate::permission_window::PermissionWindow;
@@ -6,6 +6,7 @@ use crate::permissions;
 use crate::recorder::Recorder;
 use crate::settings_window::SettingsWindow;
 use crate::sound::SoundPlayer;
+use crate::theme;
 use crate::transcriber::Transcriber;
 use objc2::msg_send;
 use objc2::rc::Retained;
@@ -293,6 +294,10 @@ fn menu_handler_class() -> &'static AnyClass {
                 set_live_transcription_action as extern "C" fn(*mut AnyObject, Sel, *mut AnyObject),
             );
             builder.add_method(
+                sel!(setAppearanceMode:),
+                set_appearance_mode_action as extern "C" fn(*mut AnyObject, Sel, *mut AnyObject),
+            );
+            builder.add_method(
                 sel!(setSoundEffectsEnabled:),
                 set_sound_effects_action as extern "C" fn(*mut AnyObject, Sel, *mut AnyObject),
             );
@@ -419,6 +424,16 @@ extern "C" fn set_live_transcription_action(
     set_live_transcription_enabled(state != 0);
 }
 
+extern "C" fn set_appearance_mode_action(_this: *mut AnyObject, _sel: Sel, sender: *mut AnyObject) {
+    let selected: isize = unsafe { msg_send![sender, selectedSegment] };
+    let appearance = if selected == 1 {
+        AppAppearance::Light
+    } else {
+        AppAppearance::Dark
+    };
+    set_app_appearance(appearance);
+}
+
 extern "C" fn set_sound_effects_action(_this: *mut AnyObject, _sel: Sel, sender: *mut AnyObject) {
     let state: isize = unsafe { msg_send![sender, state] };
     set_sound_effects_enabled(state != 0);
@@ -540,6 +555,32 @@ fn set_live_transcription_enabled(enabled: bool) {
         "[screamer] Live transcription {}",
         if enabled { "enabled" } else { "disabled" }
     );
+}
+
+fn set_app_appearance(appearance: AppAppearance) {
+    let mut config = Config::load();
+    if config.appearance == appearance {
+        sync_settings_window(&config);
+        return;
+    }
+
+    config.appearance = appearance;
+    config.save();
+
+    if let Some(mtm) = MainThreadMarker::new() {
+        theme::apply_app_appearance(mtm, appearance);
+        OVERLAY.with(|cell| {
+            if let Some(overlay) = cell.borrow().as_ref() {
+                if let Ok(mut ov) = overlay.try_borrow_mut() {
+                    ov.set_appearance(appearance);
+                }
+            }
+        });
+        rebuild_status_menu(mtm);
+    }
+
+    sync_settings_window(&config);
+    eprintln!("[screamer] Appearance set to {}", config.appearance_label());
 }
 
 fn set_sound_effects_enabled(enabled: bool) {
@@ -666,7 +707,12 @@ impl App {
         transcriber: Arc<Transcriber>,
     ) -> Result<Self, AppInitError> {
         let recorder = Arc::new(Recorder::new());
-        let overlay = Rc::new(RefCell::new(Overlay::new(mtm, config.overlay_position)));
+        theme::apply_app_appearance(mtm, config.appearance);
+        let overlay = Rc::new(RefCell::new(Overlay::new(
+            mtm,
+            config.overlay_position,
+            config.appearance,
+        )));
         let sound_player = Rc::new(SoundPlayer::new(mtm));
 
         // Store overlay reference for position menu handler

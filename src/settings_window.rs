@@ -1,11 +1,13 @@
-use crate::config::{Config, HOTKEYS, MODELS, POSITIONS};
+use crate::config::{AppAppearance, Config, HOTKEYS, MODELS, POSITIONS};
+use crate::theme;
 use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::sel;
 use objc2_app_kit::{
     NSBackingStoreType, NSButton, NSButtonType, NSColor, NSControlStateValueOff,
-    NSControlStateValueOn, NSFont, NSImage, NSImageScaling, NSImageView, NSPopUpButton, NSSwitch,
+    NSControlStateValueOn, NSFont, NSImage, NSImageScaling, NSImageView, NSPopUpButton,
+    NSSegmentDistribution, NSSegmentStyle, NSSegmentSwitchTracking, NSSegmentedControl, NSSwitch,
     NSTextAlignment, NSTextField, NSView, NSWindow, NSWindowStyleMask, NSWindowTitleVisibility,
 };
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
@@ -14,7 +16,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 const WINDOW_WIDTH: f64 = 660.0;
-const WINDOW_HEIGHT: f64 = 560.0;
+const WINDOW_HEIGHT: f64 = 620.0;
 const OUTER_PADDING: f64 = 24.0;
 const CARD_WIDTH: f64 = WINDOW_WIDTH - OUTER_PADDING * 2.0;
 const CARD_INSET: f64 = 18.0;
@@ -24,17 +26,31 @@ const POPUP_WIDTH: f64 = 238.0;
 const POPUP_HEIGHT: f64 = 30.0;
 const SWITCH_WIDTH: f64 = 52.0;
 const SWITCH_HEIGHT: f64 = 28.0;
+const APPEARANCE_TOGGLE_WIDTH: f64 = 196.0;
+const APPEARANCE_TOGGLE_HEIGHT: f64 = 30.0;
 const ACTION_BUTTON_HEIGHT: f64 = 30.0;
 const PERMISSION_BUTTON_WIDTH: f64 = 114.0;
 const PERMISSION_BUTTON_GAP: f64 = 10.0;
 const PERMISSION_SHORTCUTS_WIDTH: f64 = PERMISSION_BUTTON_WIDTH * 2.0 + PERMISSION_BUTTON_GAP;
 const LOGO_SIZE: f64 = 84.0;
+const LOGO_BADGE_SIZE: f64 = 104.0;
+
+struct RowThemeViews {
+    card: Retained<NSView>,
+    accent: Retained<NSView>,
+    label: Retained<NSTextField>,
+}
 
 pub struct SettingsWindow {
     window: Retained<NSWindow>,
+    content: Retained<NSView>,
+    logo_badge: Retained<NSView>,
+    title: Retained<NSTextField>,
+    row_views: Vec<RowThemeViews>,
     model_popup: Retained<NSPopUpButton>,
     hotkey_popup: Retained<NSPopUpButton>,
     position_popup: Retained<NSPopUpButton>,
+    appearance_toggle: Retained<NSSegmentedControl>,
     live_switch: Retained<NSSwitch>,
     sound_switch: Retained<NSSwitch>,
 }
@@ -68,15 +84,27 @@ impl SettingsWindow {
             window.setReleasedWhenClosed(false);
         }
 
-        let background = brand_background();
-        window.setBackgroundColor(Some(&background));
-
         let content = window
             .contentView()
             .expect("settings window should have content view");
+
+        let background = theme::window_background(config.appearance);
+        window.setBackgroundColor(Some(&background));
         style_surface(&content, &background, &background, 0.0);
 
         let logo_y = WINDOW_HEIGHT - OUTER_PADDING - LOGO_SIZE - 10.0;
+        let logo_badge = surface_view(
+            mtm,
+            CGRect::new(
+                CGPoint::new((WINDOW_WIDTH - LOGO_BADGE_SIZE) / 2.0, logo_y - 10.0),
+                CGSize::new(LOGO_BADGE_SIZE, LOGO_BADGE_SIZE),
+            ),
+            &theme::logo_badge_background(config.appearance),
+            &theme::logo_badge_border(config.appearance),
+            LOGO_BADGE_SIZE / 2.0,
+        );
+        content.addSubview(&logo_badge);
+
         if let Some(logo) = load_logo(mtm) {
             let logo_view = NSImageView::imageViewWithImage(&logo, mtm);
             logo_view.setFrame(CGRect::new(
@@ -88,7 +116,7 @@ impl SettingsWindow {
         }
 
         let title_y = logo_y - 34.0;
-        let title = title_label(
+        let title = text_label(
             mtm,
             "Screamer",
             CGRect::new(
@@ -96,6 +124,8 @@ impl SettingsWindow {
                 CGSize::new(CARD_WIDTH, 28.0),
             ),
             24.0,
+            &theme::title_text(config.appearance),
+            true,
         );
         title.setAlignment(NSTextAlignment::Center);
         content.addSubview(&title);
@@ -148,6 +178,18 @@ impl SettingsWindow {
             position_popup.addItemWithTitle(&NSString::from_str(position.label));
         }
 
+        let appearance_toggle = appearance_toggle(
+            mtm,
+            CGRect::new(
+                CGPoint::new(
+                    CARD_WIDTH - CARD_INSET - APPEARANCE_TOGGLE_WIDTH,
+                    (ROW_HEIGHT - APPEARANCE_TOGGLE_HEIGHT) / 2.0,
+                ),
+                CGSize::new(APPEARANCE_TOGGLE_WIDTH, APPEARANCE_TOGGLE_HEIGHT),
+            ),
+            handler,
+        );
+
         let live_switch = switch_button(
             mtm,
             CGRect::new(
@@ -187,28 +229,86 @@ impl SettingsWindow {
         );
 
         let mut row_y = title_y - 18.0 - ROW_HEIGHT;
-        add_row(mtm, &content, row_y, "Model", &model_popup);
+        let mut row_views = Vec::new();
+        row_views.push(add_row(
+            mtm,
+            &content,
+            row_y,
+            "Model",
+            &model_popup,
+            config.appearance,
+        ));
 
         row_y -= CARD_SPACING + ROW_HEIGHT;
-        add_row(mtm, &content, row_y, "Hotkey", &hotkey_popup);
+        row_views.push(add_row(
+            mtm,
+            &content,
+            row_y,
+            "Hotkey",
+            &hotkey_popup,
+            config.appearance,
+        ));
 
         row_y -= CARD_SPACING + ROW_HEIGHT;
-        add_row(mtm, &content, row_y, "Overlay Position", &position_popup);
+        row_views.push(add_row(
+            mtm,
+            &content,
+            row_y,
+            "Overlay Position",
+            &position_popup,
+            config.appearance,
+        ));
 
         row_y -= CARD_SPACING + ROW_HEIGHT;
-        add_row(mtm, &content, row_y, "Live Transcription", &live_switch);
+        row_views.push(add_row(
+            mtm,
+            &content,
+            row_y,
+            "Appearance",
+            &appearance_toggle,
+            config.appearance,
+        ));
 
         row_y -= CARD_SPACING + ROW_HEIGHT;
-        add_row(mtm, &content, row_y, "Sound Effects", &sound_switch);
+        row_views.push(add_row(
+            mtm,
+            &content,
+            row_y,
+            "Live Transcription",
+            &live_switch,
+            config.appearance,
+        ));
 
         row_y -= CARD_SPACING + ROW_HEIGHT;
-        add_row(mtm, &content, row_y, "Permissions", &permission_shortcuts);
+        row_views.push(add_row(
+            mtm,
+            &content,
+            row_y,
+            "Sound Effects",
+            &sound_switch,
+            config.appearance,
+        ));
+
+        row_y -= CARD_SPACING + ROW_HEIGHT;
+        row_views.push(add_row(
+            mtm,
+            &content,
+            row_y,
+            "Permissions",
+            &permission_shortcuts,
+            config.appearance,
+        ));
 
         let settings = Rc::new(Self {
             window,
+            content,
+            logo_badge,
+            title,
+            row_views,
             model_popup,
             hotkey_popup,
             position_popup,
+            appearance_toggle,
             live_switch,
             sound_switch,
         });
@@ -222,6 +322,8 @@ impl SettingsWindow {
     }
 
     pub fn sync(&self, config: &Config) {
+        self.apply_theme(config.appearance);
+
         if let Some(index) = MODELS.iter().position(|model| model.id == config.model) {
             self.model_popup.selectItemAtIndex(index as isize);
         }
@@ -237,6 +339,9 @@ impl SettingsWindow {
             self.position_popup.selectItemAtIndex(index as isize);
         }
 
+        self.appearance_toggle
+            .setSelectedSegment(appearance_segment_index(config.appearance));
+
         self.live_switch.setState(if config.live_transcription {
             NSControlStateValueOn
         } else {
@@ -248,22 +353,72 @@ impl SettingsWindow {
             NSControlStateValueOff
         });
     }
+
+    fn apply_theme(&self, appearance: AppAppearance) {
+        let background = theme::window_background(appearance);
+        self.window.setBackgroundColor(Some(&background));
+        style_surface(&self.content, &background, &background, 0.0);
+
+        self.logo_badge
+            .setHidden(matches!(appearance, AppAppearance::Dark));
+        style_surface(
+            &self.logo_badge,
+            &theme::logo_badge_background(appearance),
+            &theme::logo_badge_border(appearance),
+            LOGO_BADGE_SIZE / 2.0,
+        );
+
+        let title_color = theme::title_text(appearance);
+        self.title.setTextColor(Some(&title_color));
+
+        let card_background = theme::surface_background(appearance);
+        let card_border = theme::card_border(appearance);
+        let gold = theme::brand_gold();
+        let label_color = theme::body_text(appearance);
+        for row in &self.row_views {
+            style_surface(&row.card, &card_background, &card_border, 16.0);
+            style_surface(&row.accent, &gold, &gold, 2.0);
+            row.label.setTextColor(Some(&label_color));
+        }
+
+        self.appearance_toggle
+            .setSelectedSegmentBezelColor(Some(&theme::brand_gold()));
+    }
 }
 
-fn add_row(mtm: MainThreadMarker, content: &NSView, y: f64, title: &str, control: &NSView) {
+fn add_row(
+    mtm: MainThreadMarker,
+    content: &NSView,
+    y: f64,
+    title: &str,
+    control: &NSView,
+    appearance: AppAppearance,
+) -> RowThemeViews {
     let card = row_card(
         mtm,
         CGRect::new(
             CGPoint::new(OUTER_PADDING, y),
             CGSize::new(CARD_WIDTH, ROW_HEIGHT),
         ),
+        appearance,
     );
     content.addSubview(&card);
-    add_row_label(mtm, &card, title);
+    let (accent, label) = add_row_label(mtm, &card, title, appearance);
     card.addSubview(control);
+
+    RowThemeViews {
+        card,
+        accent,
+        label,
+    }
 }
 
-fn add_row_label(mtm: MainThreadMarker, card: &NSView, title: &str) {
+fn add_row_label(
+    mtm: MainThreadMarker,
+    card: &NSView,
+    title: &str,
+    appearance: AppAppearance,
+) -> (Retained<NSView>, Retained<NSTextField>) {
     let accent_height = 20.0;
     let accent_y = (ROW_HEIGHT - accent_height) / 2.0;
     let accent = surface_view(
@@ -272,8 +427,8 @@ fn add_row_label(mtm: MainThreadMarker, card: &NSView, title: &str) {
             CGPoint::new(18.0, accent_y),
             CGSize::new(4.0, accent_height),
         ),
-        &brand_gold(),
-        &brand_gold(),
+        &theme::brand_gold(),
+        &theme::brand_gold(),
         2.0,
     );
     card.addSubview(&accent);
@@ -286,14 +441,22 @@ fn add_row_label(mtm: MainThreadMarker, card: &NSView, title: &str) {
             CGSize::new(280.0, 22.0),
         ),
         15.5,
-        &brand_text(),
+        &theme::body_text(appearance),
         true,
     );
     card.addSubview(&label);
+
+    (accent, label)
 }
 
-fn row_card(mtm: MainThreadMarker, frame: CGRect) -> Retained<NSView> {
-    surface_view(mtm, frame, &brand_surface(), &brand_card_border(), 16.0)
+fn row_card(mtm: MainThreadMarker, frame: CGRect, appearance: AppAppearance) -> Retained<NSView> {
+    surface_view(
+        mtm,
+        frame,
+        &theme::surface_background(appearance),
+        &theme::card_border(appearance),
+        16.0,
+    )
 }
 
 fn popup_button(
@@ -309,6 +472,28 @@ fn popup_button(
         popup.setAction(Some(action));
     }
     popup
+}
+
+fn appearance_toggle(
+    mtm: MainThreadMarker,
+    frame: CGRect,
+    handler: *const AnyObject,
+) -> Retained<NSSegmentedControl> {
+    let toggle = NSSegmentedControl::initWithFrame(mtm.alloc::<NSSegmentedControl>(), frame);
+    toggle.setSegmentCount(2);
+    toggle.setTrackingMode(NSSegmentSwitchTracking::SelectOne);
+    toggle.setSegmentStyle(NSSegmentStyle::Capsule);
+    toggle.setSegmentDistribution(NSSegmentDistribution::FillEqually);
+    toggle.setLabel_forSegment(&NSString::from_str("☾ Dark"), 0);
+    toggle.setLabel_forSegment(&NSString::from_str("☀ Light"), 1);
+    toggle.setSelectedSegmentBezelColor(Some(&theme::brand_gold()));
+    let font = NSFont::systemFontOfSize(13.0);
+    unsafe {
+        toggle.setTarget(Some(&*handler));
+        toggle.setAction(Some(sel!(setAppearanceMode:)));
+        let _: () = msg_send![&*toggle, setFont: &*font];
+    }
+    toggle
 }
 
 fn switch_button(
@@ -408,15 +593,6 @@ fn style_surface(view: &NSView, background: &NSColor, border: &NSColor, radius: 
     }
 }
 
-fn title_label(
-    mtm: MainThreadMarker,
-    text: &str,
-    frame: CGRect,
-    font_size: f64,
-) -> Retained<NSTextField> {
-    text_label(mtm, text, frame, font_size, &brand_text(), true)
-}
-
 fn text_label(
     mtm: MainThreadMarker,
     text: &str,
@@ -441,6 +617,13 @@ fn text_label(
     };
     label.setFont(Some(&font));
     label
+}
+
+fn appearance_segment_index(appearance: AppAppearance) -> isize {
+    match appearance {
+        AppAppearance::Dark => 0,
+        AppAppearance::Light => 1,
+    }
 }
 
 fn load_logo(mtm: MainThreadMarker) -> Option<Retained<NSImage>> {
@@ -473,26 +656,6 @@ fn find_logo_path() -> Option<PathBuf> {
     }
 
     None
-}
-
-fn brand_background() -> Retained<NSColor> {
-    NSColor::colorWithSRGBRed_green_blue_alpha(0.07, 0.06, 0.05, 1.0)
-}
-
-fn brand_surface() -> Retained<NSColor> {
-    NSColor::colorWithSRGBRed_green_blue_alpha(0.11, 0.095, 0.08, 1.0)
-}
-
-fn brand_text() -> Retained<NSColor> {
-    NSColor::colorWithSRGBRed_green_blue_alpha(0.97, 0.95, 0.92, 1.0)
-}
-
-fn brand_gold() -> Retained<NSColor> {
-    NSColor::colorWithSRGBRed_green_blue_alpha(0.86, 0.70, 0.34, 1.0)
-}
-
-fn brand_card_border() -> Retained<NSColor> {
-    NSColor::colorWithSRGBRed_green_blue_alpha(0.86, 0.70, 0.34, 0.14)
 }
 
 fn window_model_title(id: &str) -> String {
