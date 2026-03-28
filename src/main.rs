@@ -113,10 +113,9 @@ fn main() {
     // Start hotkey listener and waveform timer
     app.start(mtm);
     loading.close();
+    app::show_settings_window();
     if !permission_status.accessibility_granted && should_prompt_accessibility {
         app::show_accessibility_window();
-    } else {
-        app::show_settings_window();
     }
 
     eprintln!("[screamer] Ready — hold Left Control to record");

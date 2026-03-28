@@ -150,14 +150,11 @@ pub fn sync_accessibility_window() {
         cell.set(granted);
         previous != granted
     });
-    let dismissed = ACCESSIBILITY_HELPER_DISMISSED.with(|cell| cell.get());
 
     ACCESSIBILITY_WINDOW.with(|cell| {
         if let Some(window) = cell.borrow().as_ref() {
             if granted {
                 window.hide();
-            } else if !dismissed {
-                window.show();
             }
         }
     });
@@ -327,7 +324,6 @@ extern "C" fn open_accessibility_settings_action(
     _sender: *mut AnyObject,
 ) {
     open_accessibility_settings();
-    show_accessibility_window();
 }
 
 extern "C" fn dismiss_accessibility_helper_action(
@@ -858,12 +854,6 @@ impl App {
         hotkey.start_on_main_thread(
             mtm,
             move || {
-                if !permissions::has_accessibility_permission() {
-                    eprintln!("[screamer] Accessibility permission missing; showing helper");
-                    show_accessibility_window();
-                    return;
-                }
-
                 if is_rec_press
                     .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                     .is_ok()
@@ -963,6 +953,12 @@ impl App {
                                     result.profile.total.as_millis(),
                                     result.text
                                 );
+
+                                if !permissions::has_accessibility_permission() {
+                                    eprintln!(
+                                        "[screamer] Accessibility permission missing; automatic paste may fail for this build"
+                                    );
+                                }
 
                                 let paste_t0 = std::time::Instant::now();
                                 crate::paster::paste(&result.text);

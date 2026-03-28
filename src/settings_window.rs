@@ -4,9 +4,9 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::sel;
 use objc2_app_kit::{
-    NSBackingStoreType, NSColor, NSControlStateValueOff, NSControlStateValueOn, NSFont, NSImage,
-    NSImageScaling, NSImageView, NSPopUpButton, NSSwitch, NSTextAlignment, NSTextField, NSView,
-    NSWindow, NSWindowStyleMask, NSWindowTitleVisibility,
+    NSBackingStoreType, NSButton, NSButtonType, NSColor, NSControlStateValueOff,
+    NSControlStateValueOn, NSFont, NSImage, NSImageScaling, NSImageView, NSPopUpButton, NSSwitch,
+    NSTextAlignment, NSTextField, NSView, NSWindow, NSWindowStyleMask, NSWindowTitleVisibility,
 };
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
 use objc2_foundation::{MainThreadMarker, NSString};
@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 const WINDOW_WIDTH: f64 = 660.0;
-const WINDOW_HEIGHT: f64 = 500.0;
+const WINDOW_HEIGHT: f64 = 560.0;
 const OUTER_PADDING: f64 = 24.0;
 const CARD_WIDTH: f64 = WINDOW_WIDTH - OUTER_PADDING * 2.0;
 const CARD_INSET: f64 = 18.0;
@@ -170,6 +170,20 @@ impl SettingsWindow {
             sel!(setSoundEffectsEnabled:),
         );
 
+        let accessibility_button = action_button(
+            mtm,
+            CGRect::new(
+                CGPoint::new(
+                    CARD_WIDTH - CARD_INSET - POPUP_WIDTH,
+                    (ROW_HEIGHT - POPUP_HEIGHT) / 2.0,
+                ),
+                CGSize::new(POPUP_WIDTH, POPUP_HEIGHT),
+            ),
+            "Open Accessibility Settings",
+            handler,
+            sel!(openAccessibilitySettings:),
+        );
+
         let mut row_y = title_y - 18.0 - ROW_HEIGHT;
         add_select_row(mtm, &content, row_y, "Model", &model_popup);
 
@@ -184,6 +198,9 @@ impl SettingsWindow {
 
         row_y -= CARD_SPACING + ROW_HEIGHT;
         add_toggle_row(mtm, &content, row_y, "Sound Effects", &sound_switch);
+
+        row_y -= CARD_SPACING + ROW_HEIGHT;
+        add_action_row(mtm, &content, row_y, "Accessibility", &accessibility_button);
 
         let settings = Rc::new(Self {
             window,
@@ -257,6 +274,19 @@ fn add_toggle_row(mtm: MainThreadMarker, content: &NSView, y: f64, title: &str, 
     card.addSubview(control);
 }
 
+fn add_action_row(mtm: MainThreadMarker, content: &NSView, y: f64, title: &str, control: &NSView) {
+    let card = row_card(
+        mtm,
+        CGRect::new(
+            CGPoint::new(OUTER_PADDING, y),
+            CGSize::new(CARD_WIDTH, ROW_HEIGHT),
+        ),
+    );
+    content.addSubview(&card);
+    add_row_label(mtm, &card, title);
+    card.addSubview(control);
+}
+
 fn add_row_label(mtm: MainThreadMarker, card: &NSView, title: &str) {
     let accent_height = 20.0;
     let accent_y = (ROW_HEIGHT - accent_height) / 2.0;
@@ -317,6 +347,26 @@ fn switch_button(
         switch.setAction(Some(action));
     }
     switch
+}
+
+fn action_button(
+    mtm: MainThreadMarker,
+    frame: CGRect,
+    title: &str,
+    handler: *const AnyObject,
+    action: objc2::runtime::Sel,
+) -> Retained<NSButton> {
+    let button = unsafe {
+        NSButton::buttonWithTitle_target_action(
+            &NSString::from_str(title),
+            Some(&*handler),
+            Some(action),
+            mtm,
+        )
+    };
+    button.setFrame(frame);
+    button.setButtonType(NSButtonType::MomentaryPushIn);
+    button
 }
 
 fn surface_view(
