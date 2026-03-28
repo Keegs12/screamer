@@ -28,10 +28,14 @@ const AV_AUTHORIZATION_STATUS_NOT_DETERMINED: isize = 0;
 const AV_AUTHORIZATION_STATUS_DENIED: isize = 2;
 const AV_AUTHORIZATION_STATUS_AUTHORIZED: isize = 3;
 
-pub fn request_startup_permissions() -> PermissionStatus {
+pub fn request_startup_permissions(prompt_for_accessibility: bool) -> PermissionStatus {
     PermissionStatus {
         microphone_granted: request_microphone_access_if_needed(),
-        accessibility_granted: request_accessibility_if_needed(),
+        accessibility_granted: if prompt_for_accessibility {
+            request_accessibility_if_needed()
+        } else {
+            has_accessibility_permission()
+        },
     }
 }
 

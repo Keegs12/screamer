@@ -41,6 +41,10 @@ pub struct Config {
     pub live_transcription: bool,
     #[serde(default = "default_sound_effects")]
     pub sound_effects: bool,
+    #[serde(default = "default_show_accessibility_helper_on_launch")]
+    pub show_accessibility_helper_on_launch: bool,
+    #[serde(default)]
+    pub accessibility_helper_dismissed: bool,
 }
 
 impl Default for Config {
@@ -51,6 +55,8 @@ impl Default for Config {
             overlay_position: OverlayPosition::default(),
             live_transcription: default_live_transcription(),
             sound_effects: default_sound_effects(),
+            show_accessibility_helper_on_launch: default_show_accessibility_helper_on_launch(),
+            accessibility_helper_dismissed: false,
         }
     }
 }
@@ -60,6 +66,10 @@ fn default_live_transcription() -> bool {
 }
 
 fn default_sound_effects() -> bool {
+    true
+}
+
+fn default_show_accessibility_helper_on_launch() -> bool {
     true
 }
 
@@ -201,6 +211,8 @@ mod tests {
         assert_eq!(config.overlay_position, OverlayPosition::Center);
         assert!(config.live_transcription);
         assert!(config.sound_effects);
+        assert!(config.show_accessibility_helper_on_launch);
+        assert!(!config.accessibility_helper_dismissed);
     }
 
     #[test]
@@ -211,6 +223,8 @@ mod tests {
             overlay_position: OverlayPosition::Bottom,
             live_transcription: false,
             sound_effects: false,
+            show_accessibility_helper_on_launch: false,
+            accessibility_helper_dismissed: true,
         };
         let json = serde_json::to_string(&config).unwrap();
         let parsed: Config = serde_json::from_str(&json).unwrap();
@@ -219,17 +233,20 @@ mod tests {
         assert_eq!(parsed.overlay_position, OverlayPosition::Bottom);
         assert!(!parsed.live_transcription);
         assert!(!parsed.sound_effects);
+        assert!(!parsed.show_accessibility_helper_on_launch);
+        assert!(parsed.accessibility_helper_dismissed);
     }
 
     #[test]
     fn config_backward_compat() {
-        // Old config without overlay_position/live_transcription/sound_effects should deserialize
-        // with defaults.
+        // Old config without newer fields should deserialize with defaults.
         let json = r#"{"model":"base","hotkey":"left_control"}"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.overlay_position, OverlayPosition::Center);
         assert!(config.live_transcription);
         assert!(config.sound_effects);
+        assert!(config.show_accessibility_helper_on_launch);
+        assert!(!config.accessibility_helper_dismissed);
     }
 
     #[test]

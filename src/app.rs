@@ -102,11 +102,6 @@ pub fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication) {
 }
 
 pub fn show_settings_window() {
-    if !permissions::has_accessibility_permission() {
-        show_accessibility_window();
-        return;
-    }
-
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
@@ -125,9 +120,7 @@ pub fn show_accessibility_window() {
         return;
     };
 
-    ACCESSIBILITY_HELPER_DISMISSED.with(|cell| {
-        cell.set(false);
-    });
+    set_accessibility_helper_dismissed(false);
 
     let app = NSApplication::sharedApplication(mtm);
     app.activate();
@@ -136,6 +129,18 @@ pub fn show_accessibility_window() {
             window.show();
         }
     });
+}
+
+fn set_accessibility_helper_dismissed(dismissed: bool) {
+    ACCESSIBILITY_HELPER_DISMISSED.with(|cell| {
+        cell.set(dismissed);
+    });
+
+    let mut config = Config::load();
+    if config.accessibility_helper_dismissed != dismissed {
+        config.accessibility_helper_dismissed = dismissed;
+        config.save();
+    }
 }
 
 pub fn sync_accessibility_window() {
@@ -165,23 +170,20 @@ pub fn sync_accessibility_window() {
 }
 
 fn open_accessibility_settings() {
-    ACCESSIBILITY_HELPER_DISMISSED.with(|cell| {
-        cell.set(false);
-    });
+    set_accessibility_helper_dismissed(false);
     let _ = std::process::Command::new("open")
         .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
         .spawn();
 }
 
 fn dismiss_accessibility_helper() {
-    ACCESSIBILITY_HELPER_DISMISSED.with(|cell| {
-        cell.set(true);
-    });
+    set_accessibility_helper_dismissed(true);
     ACCESSIBILITY_WINDOW.with(|cell| {
         if let Some(window) = cell.borrow().as_ref() {
             window.hide();
         }
     });
+    show_settings_window();
 }
 
 // ─── ObjC Menu Handler ───────────────────────────────────────────────────────
@@ -660,6 +662,9 @@ impl App {
         });
         ACCESSIBILITY_GRANTED.with(|cell| {
             cell.set(permissions::has_accessibility_permission());
+        });
+        ACCESSIBILITY_HELPER_DISMISSED.with(|cell| {
+            cell.set(config.accessibility_helper_dismissed);
         });
 
         let menu = Self::build_menu(mtm, &config);

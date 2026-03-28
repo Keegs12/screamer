@@ -54,7 +54,14 @@ fn main() {
 
     let loading = loading::LoadingWindow::show(mtm, &ns_app);
 
-    let permission_status = permissions::request_startup_permissions();
+    let mut config = config::Config::load();
+    let should_prompt_accessibility =
+        !permissions::has_accessibility_permission() && config.show_accessibility_helper_on_launch;
+    let permission_status = permissions::request_startup_permissions(should_prompt_accessibility);
+    if config.show_accessibility_helper_on_launch {
+        config.show_accessibility_helper_on_launch = false;
+        config.save();
+    }
     if !permission_status.microphone_granted {
         eprintln!("[screamer] WARNING: Microphone permission not granted");
     }
@@ -70,7 +77,6 @@ fn main() {
         app::App::show_alert(mtm, "Permissions Required", &message);
     }
 
-    let config = config::Config::load();
     let (tx, rx) = mpsc::sync_channel(1);
     let load_config = config.clone();
     std::thread::spawn(move || {
@@ -107,10 +113,10 @@ fn main() {
     // Start hotkey listener and waveform timer
     app.start(mtm);
     loading.close();
-    if permission_status.accessibility_granted {
-        app::show_settings_window();
-    } else {
+    if !permission_status.accessibility_granted && should_prompt_accessibility {
         app::show_accessibility_window();
+    } else {
+        app::show_settings_window();
     }
 
     eprintln!("[screamer] Ready — hold Left Control to record");
