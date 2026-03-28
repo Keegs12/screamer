@@ -9,10 +9,35 @@ MODELS_DIR="${MODELS_DIR:-models}"
 BIN_PATH="${BIN_PATH:-target/release/screamer}"
 PLIST_BUDDY="${PLIST_BUDDY:-/usr/libexec/PlistBuddy}"
 SYSTEM_CODESIGN="${SYSTEM_CODESIGN:-/usr/bin/codesign}"
-CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
+SYSTEM_SECURITY="${SYSTEM_SECURITY:-/usr/bin/security}"
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
 CODESIGN_ENTITLEMENTS="${CODESIGN_ENTITLEMENTS:-}"
 APP_VERSION="${APP_VERSION:-$(awk -F '\"' '/^version = / { print $2; exit }' Cargo.toml)}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
+
+detect_codesign_identity() {
+    if [ -n "$CODESIGN_IDENTITY" ]; then
+        echo "$CODESIGN_IDENTITY"
+        return
+    fi
+
+    if [ ! -x "$SYSTEM_SECURITY" ]; then
+        echo "-"
+        return
+    fi
+
+    local detected_identity
+    detected_identity="$("$SYSTEM_SECURITY" find-identity -v -p codesigning 2>/dev/null \
+        | awk -F '"' '/Developer ID Application:/ { print $2; exit }')"
+
+    if [ -n "$detected_identity" ]; then
+        echo "$detected_identity"
+    else
+        echo "-"
+    fi
+}
+
+CODESIGN_IDENTITY="$(detect_codesign_identity)"
 
 sign_target() {
     local target="$1"
@@ -25,11 +50,26 @@ sign_target() {
         fi
     fi
 
-    "$SYSTEM_CODESIGN" "${sign_args[@]}" "$target"
+    if "$SYSTEM_CODESIGN" "${sign_args[@]}" "$target"; then
+        return 0
+    fi
+
+    if [ "$CODESIGN_IDENTITY" = "-" ]; then
+        return 1
+    fi
+
+    echo "Warning: signing with $CODESIGN_IDENTITY failed; falling back to ad-hoc signing." >&2
+    CODESIGN_IDENTITY="-"
+    "$SYSTEM_CODESIGN" --force --sign - "$target"
 }
 
 echo "=== Building Screamer ==="
 echo "App version: $APP_VERSION"
+if [ "$CODESIGN_IDENTITY" = "-" ]; then
+    echo "Signing identity: ad-hoc"
+else
+    echo "Signing identity: $CODESIGN_IDENTITY"
+fi
 
 # Step 1: Build release binary unless a prebuilt one was provided.
 if [ "$SKIP_BUILD" = "1" ]; then

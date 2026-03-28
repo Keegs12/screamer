@@ -83,7 +83,7 @@ Requirements:
 Build from source:
 
 ```bash
-git clone https://github.com/user/screamer.git
+git clone https://github.com/suvamsh/screamer.git
 cd screamer
 ./download_model.sh
 GGML_NATIVE=OFF cargo build --release
@@ -97,7 +97,7 @@ After first launch, grant **Accessibility** permission in:
 
 This is required for the global hotkey and paste simulation.
 
-If you rebuild often, macOS may ask you to re-enable Accessibility because the app signature changes.
+`bundle.sh` will automatically try the first installed `Developer ID Application` certificate if one is available, which helps macOS keep Accessibility approval across rebuilds. If no usable certificate is installed, it falls back to ad-hoc signing and macOS may ask you to re-enable Accessibility after rebuilds.
 
 ## Configuration
 
