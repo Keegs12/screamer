@@ -55,9 +55,10 @@ thread_local! {
     static ACCESSIBILITY_WINDOW: RefCell<Option<Rc<PermissionWindow>>> = const { RefCell::new(None) };
     static ACCESSIBILITY_GRANTED: Cell<bool> = const { Cell::new(false) };
     static ACCESSIBILITY_HELPER_DISMISSED: Cell<bool> = const { Cell::new(false) };
-    static MICROPHONE_PERMISSION_REMINDER_SHOWN: Cell<bool> = const { Cell::new(false) };
     static STATUS_ITEM: RefCell<Option<Retained<NSStatusItem>>> = const { RefCell::new(None) };
 }
+
+static MICROPHONE_PERMISSION_REMINDER_SHOWN: AtomicBool = AtomicBool::new(false);
 
 pub struct App {
     _status_item: Retained<NSStatusItem>,
@@ -1122,13 +1123,9 @@ fn start_recording_capture(
         eprintln!("[screamer] Microphone permission missing; skipping audio capture");
         is_recording.store(false, Ordering::SeqCst);
 
-        let should_remind = MICROPHONE_PERMISSION_REMINDER_SHOWN.with(|cell| {
-            let shown = cell.get();
-            if !shown {
-                cell.set(true);
-            }
-            !shown
-        });
+        let should_remind = MICROPHONE_PERMISSION_REMINDER_SHOWN
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok();
 
         if should_remind {
             open_microphone_settings();
