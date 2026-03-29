@@ -3,8 +3,8 @@ use std::ffi::CString;
 use whisper_rs::SystemInfo;
 
 const APPLE_SILICON_THREADS: i32 = 4;
-const INTEL_GPU_THREADS: i32 = 6;
-const INTEL_CPU_THREADS: i32 = 8;
+const INTEL_AVX2_THREADS: i32 = 6;
+const INTEL_LEGACY_THREADS: i32 = 8;
 const DEFAULT_CPU_THREADS: i32 = 4;
 
 const APPLE_SILICON_MIN_AUDIO_CTX: i32 = 256;
@@ -123,8 +123,12 @@ impl MachineProfile {
     pub fn recommended_tuning(&self) -> RuntimeTuning {
         match self.family {
             MachineFamily::AppleSilicon(_) => RuntimeTuning {
-                compute_backend: ComputeBackendPreference::GpuOnly,
-                flash_attn: true,
+                compute_backend: if self.translated {
+                    ComputeBackendPreference::CpuOnly
+                } else {
+                    ComputeBackendPreference::GpuOnly
+                },
+                flash_attn: !self.translated,
                 gpu_device: 0,
                 n_threads: self
                     .performance_cores
@@ -134,13 +138,13 @@ impl MachineProfile {
             },
             MachineFamily::Intel => {
                 let cpu_threads = if self.cpu_features.avx2 {
-                    INTEL_GPU_THREADS
+                    INTEL_AVX2_THREADS
                 } else {
-                    INTEL_CPU_THREADS
+                    INTEL_LEGACY_THREADS
                 };
 
                 RuntimeTuning {
-                    compute_backend: ComputeBackendPreference::PreferGpu,
+                    compute_backend: ComputeBackendPreference::CpuOnly,
                     flash_attn: false,
                     gpu_device: 0,
                     n_threads: self.physical_cores.clamp(1, cpu_threads as usize) as i32,
@@ -358,5 +362,63 @@ mod tests {
             ),
             MachineFamily::Intel
         ));
+    }
+
+    #[test]
+    fn intel_tuning_stays_on_cpu_backend() {
+        let profile = MachineProfile {
+            brand: "Intel(R) Core(TM) i5-8279U CPU @ 2.40GHz".to_string(),
+            architecture: Architecture::X86_64,
+            family: MachineFamily::Intel,
+            physical_cores: 4,
+            logical_cores: 8,
+            performance_cores: None,
+            efficiency_cores: None,
+            translated: false,
+            cpu_features: CpuFeatures {
+                avx: true,
+                avx2: true,
+                fma: true,
+                f16c: true,
+            },
+        };
+
+        let tuning = profile.recommended_tuning();
+
+        assert!(matches!(
+            tuning.compute_backend,
+            ComputeBackendPreference::CpuOnly
+        ));
+        assert!(!tuning.flash_attn);
+        assert_eq!(tuning.n_threads, 4);
+        assert_eq!(tuning.adaptive_audio_ctx_min, INTEL_MIN_AUDIO_CTX);
+    }
+
+    #[test]
+    fn translated_apple_silicon_avoids_gpu_backend() {
+        let profile = MachineProfile {
+            brand: "Apple M2 Max".to_string(),
+            architecture: Architecture::Arm64,
+            family: MachineFamily::AppleSilicon(AppleChip {
+                generation: Some(2),
+                tier: AppleChipTier::Max,
+            }),
+            physical_cores: 8,
+            logical_cores: 12,
+            performance_cores: Some(8),
+            efficiency_cores: Some(4),
+            translated: true,
+            cpu_features: CpuFeatures::default(),
+        };
+
+        let tuning = profile.recommended_tuning();
+
+        assert!(matches!(
+            tuning.compute_backend,
+            ComputeBackendPreference::CpuOnly
+        ));
+        assert!(!tuning.flash_attn);
+        assert_eq!(tuning.n_threads, APPLE_SILICON_THREADS);
+        assert_eq!(tuning.adaptive_audio_ctx_min, APPLE_SILICON_MIN_AUDIO_CTX);
     }
 }
