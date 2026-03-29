@@ -3,9 +3,9 @@ use crate::theme;
 use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSApplication, NSBackingStoreType, NSColor, NSImage, NSImageScaling, NSImageView, NSPanel,
-    NSProgressIndicator, NSProgressIndicatorStyle, NSTextAlignment, NSTextField, NSView,
-    NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSApplication, NSBackingStoreType, NSColor, NSImage, NSImageScaling, NSImageView,
+    NSNormalWindowLevel, NSPanel, NSProgressIndicator, NSProgressIndicatorStyle, NSTextAlignment,
+    NSTextField, NSView, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowStyleMask,
 };
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
 use objc2_foundation::{MainThreadMarker, NSDate, NSRunLoop, NSString};
@@ -45,13 +45,14 @@ impl LoadingWindow {
             NSBackingStoreType::Buffered,
             false,
         );
-        panel.setFloatingPanel(true);
-        panel.setLevel(8);
+        // Keep the startup loader at a normal window level so macOS permission prompts
+        // can appear above it during first-launch setup.
+        panel.setFloatingPanel(false);
+        panel.setLevel(NSNormalWindowLevel);
         panel.setOpaque(false);
         panel.setHasShadow(true);
         panel.setMovableByWindowBackground(false);
         panel.setBecomesKeyOnlyIfNeeded(false);
-        panel.setWorksWhenModal(true);
         panel.setHidesOnDeactivate(false);
         panel.setAnimationBehavior(NSWindowAnimationBehavior::None);
         panel.setBackgroundColor(Some(&NSColor::clearColor()));

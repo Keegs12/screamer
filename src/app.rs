@@ -50,6 +50,7 @@ const MICROPHONE_SETTINGS_URL: &str =
 // Safe because all menu handlers and overlay access run on the main thread.
 thread_local! {
     static OVERLAY: RefCell<Option<Rc<RefCell<Overlay>>>> = const { RefCell::new(None) };
+    static HOTKEY_MONITOR: RefCell<Option<Rc<crate::hotkey::Hotkey>>> = const { RefCell::new(None) };
     static LIVE_TRANSCRIPTION_ENABLED: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
     static SOUND_EFFECTS_ENABLED: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
     static SETTINGS_WINDOW: RefCell<Option<Rc<SettingsWindow>>> = const { RefCell::new(None) };
@@ -64,6 +65,7 @@ static MICROPHONE_PERMISSION_GUIDANCE_SHOWN: AtomicBool = AtomicBool::new(false)
 pub struct App {
     _status_item: Retained<NSStatusItem>,
     overlay: Rc<RefCell<Overlay>>,
+    hotkey: Rc<crate::hotkey::Hotkey>,
     recorder: Arc<Recorder>,
     sound_player: Rc<SoundPlayer>,
     transcriber: Arc<Transcriber>,
@@ -485,15 +487,20 @@ fn apply_model_selection(index: usize) {
         return;
     };
 
+    let mut config = Config::load();
+    if config.model == model_info.id {
+        sync_settings_window(&config);
+        return;
+    }
+
     eprintln!("[screamer] Model selected: {}", model_info.id);
     if Transcriber::find_model(model_info.id).is_none() {
         eprintln!("[screamer] Model not found: {}", model_info.id);
         show_missing_model_alert(model_info.label, model_info.size, model_info.id);
-        sync_settings_window(&Config::load());
+        sync_settings_window(&config);
         return;
     }
 
-    let mut config = Config::load();
     config.model = model_info.id.to_string();
     config.save();
     relaunch();
@@ -505,11 +512,26 @@ fn apply_hotkey_selection(index: usize) {
         return;
     };
 
-    eprintln!("[screamer] Hotkey selected: {}", hotkey_info.id);
     let mut config = Config::load();
+    if config.hotkey == hotkey_info.id {
+        sync_settings_window(&config);
+        return;
+    }
+
+    eprintln!("[screamer] Hotkey selected: {}", hotkey_info.id);
     config.hotkey = hotkey_info.id.to_string();
     config.save();
-    relaunch();
+
+    HOTKEY_MONITOR.with(|cell| {
+        if let Some(hotkey) = cell.borrow().as_ref() {
+            hotkey.set_hotkey(hotkey_info.id);
+        }
+    });
+
+    if let Some(mtm) = MainThreadMarker::new() {
+        rebuild_status_menu(mtm);
+    }
+    sync_settings_window(&config);
 }
 
 fn apply_position_selection(index: usize) {
@@ -713,11 +735,15 @@ impl App {
             config.overlay_position,
             config.appearance,
         )));
+        let hotkey = Rc::new(crate::hotkey::Hotkey::new(&config));
         let sound_player = Rc::new(SoundPlayer::new(mtm));
 
         // Store overlay reference for position menu handler
         OVERLAY.with(|cell| {
             *cell.borrow_mut() = Some(overlay.clone());
+        });
+        HOTKEY_MONITOR.with(|cell| {
+            *cell.borrow_mut() = Some(hotkey.clone());
         });
 
         let live_transcription_enabled = Arc::new(AtomicBool::new(config.live_transcription));
@@ -772,6 +798,7 @@ impl App {
         Ok(Self {
             _status_item: status_item,
             overlay,
+            hotkey,
             recorder,
             sound_player,
             transcriber,
@@ -952,7 +979,7 @@ impl App {
         let pending_completion_sound_release = pending_completion_sound.clone();
         let recording_session_press = recording_session.clone();
 
-        let hotkey = crate::hotkey::Hotkey::new();
+        let hotkey = self.hotkey.clone();
 
         hotkey.start_on_main_thread(
             mtm,
