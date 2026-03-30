@@ -165,10 +165,8 @@ impl Transcriber {
         let (mut text, mut inference, mut extract) =
             self.run_with_state(state.as_mut(), samples, DecodePreset::Fast)?;
 
-        if transcript_looks_repetitive(&text) {
-            eprintln!(
-                "[screamer] Suspicious repetition detected, retrying with conservative decode"
-            );
+        if let Some(reason) = conservative_retry_reason(samples, &text) {
+            eprintln!("[screamer] Retrying final decode with conservative beam search ({reason})");
 
             let retry_state_t0 = Instant::now();
             let mut retry_state = self.create_state()?;
@@ -289,7 +287,13 @@ impl Transcriber {
         samples: &[f32],
         preset: DecodePreset,
     ) -> Result<(String, Duration, Duration), String> {
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        let mut params = FullParams::new(match preset {
+            DecodePreset::Fast => SamplingStrategy::Greedy { best_of: 1 },
+            DecodePreset::Conservative => SamplingStrategy::BeamSearch {
+                beam_size: 2,
+                patience: 1.0,
+            },
+        });
         params.set_n_threads(self.config.n_threads);
         params.set_language(Some("en"));
         params.set_print_progress(false);
@@ -373,6 +377,21 @@ fn transcript_looks_repetitive(text: &str) -> bool {
     has_adjacent_repeated_window(&tokens, 3)
 }
 
+fn conservative_retry_reason(samples: &[f32], text: &str) -> Option<&'static str> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Some("empty transcript");
+    }
+    if transcript_looks_repetitive(trimmed) {
+        return Some("repetitive transcript");
+    }
+    if samples.len() >= 32_000 && normalized_tokens(trimmed).len() <= 1 {
+        return Some("low-information transcript for long audio");
+    }
+
+    None
+}
+
 fn normalized_tokens(text: &str) -> Vec<String> {
     text.split_whitespace()
         .filter_map(|token| {
@@ -432,5 +451,36 @@ mod tests {
         let text = "I think I think this is okay.";
 
         assert!(!transcript_looks_repetitive(text));
+    }
+
+    #[test]
+    fn conservative_retry_reason_flags_empty_output() {
+        assert_eq!(
+            conservative_retry_reason(&vec![0.02; 8_000], "   "),
+            Some("empty transcript")
+        );
+    }
+
+    #[test]
+    fn conservative_retry_reason_flags_repetition() {
+        let text = "This is broken this is broken right now.";
+
+        assert_eq!(
+            conservative_retry_reason(&vec![0.02; 8_000], text),
+            Some("repetitive transcript")
+        );
+    }
+
+    #[test]
+    fn conservative_retry_reason_flags_low_information_long_clip() {
+        assert_eq!(
+            conservative_retry_reason(&vec![0.02; 32_000], "yes"),
+            Some("low-information transcript for long audio")
+        );
+    }
+
+    #[test]
+    fn conservative_retry_reason_allows_short_commands() {
+        assert_eq!(conservative_retry_reason(&vec![0.02; 8_000], "yes"), None);
     }
 }

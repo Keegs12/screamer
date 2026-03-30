@@ -6,6 +6,8 @@
 
 **The fastest free speech to text AI in the world.**
 
+[www.screamer.app](https://www.screamer.app)
+
 Push-to-talk transcription. Hold a key, speak, release, and your text is pasted instantly.
 
 [![Built with Rust](https://img.shields.io/badge/Built_with-Rust-B7410E?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
@@ -81,11 +83,12 @@ All models are free to download with `./download_model.sh`.
 |---|---|---|
 | **Screamer** | **`~55ms`** | Local average from `./verify_latency.sh` (`app_path_latency --dispatch-paste`) on Apple M2 Max with `base.en` |
 | Dictato | `80ms` | [Dictato](https://dicta.to/) |
+| Handy | `~350ms` estimated | [Handy README](https://github.com/cjpais/Handy#system-requirementsrecommendations), [Handy model config](https://github.com/cjpais/Handy/blob/main/src-tauri/src/managers/model.rs), [Handy settings strings](https://github.com/cjpais/Handy/blob/main/src/i18n/locales/en/translation.json) |
 | SuperWhisper | `~700ms` estimated | [Superwhisper](https://superwhisper.com/), [App Store](https://apps.apple.com/us/app/superwhisper/id6471464415?uo=4), [MacSources review](https://macsources.com/superwhisper-app-review/), [Declom review](https://declom.com/superwhisper/) |
 | Wispr Flow | `~600ms` estimated | [Wispr Flow](https://wisprflow.ai/), [App Store](https://apps.apple.com/us/app/wispr-flow-ai-voice-keyboard/id6497229487?uo=4), [Microsoft Store](https://apps.microsoft.com/detail/9n1b9jwb3m35), [AI Productivity Coach review](https://aiproductivitycoach.com/wispr-flow-review/), [Letterly review](https://letterly.app/blog/wispr-flow-review/) |
 | Otter.ai | `~1500ms` estimated | [Otter](https://otter.ai/), [App Store](https://apps.apple.com/us/app/otter-transcribe-voice-notes/id1276437113?uo=4) |
 
-> Screamer's number is the approximate average from the current synthetic phrase set on Apple M2 Max. Competitor numbers are public claims or rough public estimates as of March 27, 2026.
+> Screamer's number is the approximate average from the current synthetic phrase set on Apple M2 Max. Competitor numbers are public claims or rough public estimates as of March 29, 2026.
 
 ## Install
 
